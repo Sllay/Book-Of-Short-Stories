@@ -10,6 +10,7 @@ export class InputController {
     target.addEventListener('pointermove', this.onPointerMove, { passive: false });
     target.addEventListener('pointerup', this.onPointerUp, { passive: false });
     target.addEventListener('pointercancel', this.onPointerCancel, { passive: false });
+    target.addEventListener('lostpointercapture', this.onLostPointerCapture);
     target.addEventListener('contextmenu', this.preventContextMenu);
   }
 
@@ -19,6 +20,7 @@ export class InputController {
     this.target.removeEventListener('pointermove', this.onPointerMove);
     this.target.removeEventListener('pointerup', this.onPointerUp);
     this.target.removeEventListener('pointercancel', this.onPointerCancel);
+    this.target.removeEventListener('lostpointercapture', this.onLostPointerCapture);
     this.target.removeEventListener('contextmenu', this.preventContextMenu);
     this.listeners.clear();
   }
@@ -51,9 +53,16 @@ export class InputController {
     this.releasePointer(event.pointerId);
   };
 
-  private releasePointer(pointerId: number): void {
-    if (this.target.hasPointerCapture(pointerId)) this.target.releasePointerCapture(pointerId);
+  private readonly onLostPointerCapture = (event: PointerEvent): void => {
+    if (event.pointerId !== this.activePointerId) return;
     this.activePointerId = null;
+    this.emit(event, false, true);
+  };
+
+  private releasePointer(pointerId: number): void {
+    const hadCapture = this.target.hasPointerCapture(pointerId);
+    this.activePointerId = null;
+    if (hadCapture) this.target.releasePointerCapture(pointerId);
   }
 
   private emit(event: PointerEvent, isDown: boolean, cancelled: boolean): void {
