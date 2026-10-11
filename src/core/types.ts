@@ -15,6 +15,7 @@ export interface PointerSnapshot {
   readonly normalizedX: number;
   readonly normalizedY: number;
   readonly isDown: boolean;
+  readonly cancelled: boolean;
   readonly pressure: number;
   readonly timestamp: number;
 }
