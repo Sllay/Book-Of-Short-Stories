@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BookRenderer, type PageTurnDirection, type PageTurnMotion } from '../book/BookRenderer';
 import type { BookPageSource } from '../book/PageTextureCache';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
+import { ReadingWorldController } from '../world/ReadingWorldController';
 
 const MAX_FRAMEBUFFER_PIXELS = 4_200_000;
 
@@ -12,6 +13,7 @@ export class ReaderRenderer {
   private readonly book = new BookRenderer();
   private readonly hemisphere = new THREE.HemisphereLight(0xfff4dc, 0x6e5b4a, 1.55);
   private readonly keyLight = new THREE.DirectionalLight(0xffe1b0, 1.75);
+  private readonly world: ReadingWorldController;
   private width = 1;
   private height = 1;
   private zoom = 0.55;
@@ -26,11 +28,11 @@ export class ReaderRenderer {
       powerPreference: 'default'
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.setClearColor(0x0d0b09, 1);
     this.renderer.shadowMap.enabled = false;
 
-    this.keyLight.position.set(3.8, 4.2, 6.5);
-    this.scene.add(this.hemisphere, this.keyLight, this.book.root);
+    this.world = new ReadingWorldController(this.hemisphere, this.keyLight);
+    this.scene.add(this.world.root, this.hemisphere, this.keyLight, this.book.root);
     this.applyCameraPose();
   }
 
@@ -57,8 +59,7 @@ export class ReaderRenderer {
   }
 
   public setFocusMode(enabled: boolean): void {
-    this.hemisphere.intensity = enabled ? 1.18 : 1.55;
-    this.keyLight.intensity = enabled ? 1.9 : 1.75;
+    this.world.setFocusMode(enabled);
   }
 
   public setQuality(profile: QualityProfile): void {
@@ -96,11 +97,15 @@ export class ReaderRenderer {
   }
 
   public render(): void {
+    // The world is deliberately static most of the time. The clock only refreshes
+    // when a render is already happening, so time-of-day costs no continuous RAF.
+    this.world.refreshClock();
     this.renderer.render(this.scene, this.camera);
   }
 
   public dispose(): void {
     this.book.dispose();
+    this.world.dispose();
     this.renderer.dispose();
   }
 
@@ -114,12 +119,20 @@ export class ReaderRenderer {
 
   private applyCameraPose(): void {
     const portraitLike = this.camera.aspect < 1.2;
-    const farZ = portraitLike ? 8.9 : 7.35;
-    const nearZ = portraitLike ? 6.65 : 5.45;
+    const farZ = portraitLike ? 8.85 : 7.6;
+    const nearZ = portraitLike ? 6.55 : 5.25;
     const z = THREE.MathUtils.lerp(farZ, nearZ, this.zoom);
 
-    this.camera.position.set(0, portraitLike ? 0.08 : 0.12, z);
-    this.camera.lookAt(0, 0, 0);
+    // Pulled back: camera sits on the reader side and looks slightly toward the
+    // wall/mirror, revealing the environment. Zooming in smoothly moves toward a
+    // near top-down reading pose so the book stays comfortable to read.
+    const farY = portraitLike ? -1.0 : -1.72;
+    const nearY = portraitLike ? -0.08 : 0.04;
+    const cameraY = THREE.MathUtils.lerp(farY, nearY, this.zoom);
+    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.32 : 0.58, 0, this.zoom);
+
+    this.camera.position.set(0, cameraY, z);
+    this.camera.lookAt(0, lookY, -0.03);
     this.camera.updateMatrixWorld();
   }
 }
