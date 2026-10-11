@@ -7,6 +7,10 @@ interface BlockRange {
   readonly endOffset: number;
 }
 
+function blockKey(chapterId: string, blockId: string): string {
+  return `${chapterId}\u0000${blockId}`;
+}
+
 export class PageMap {
   private readonly rangesByBlock = new Map<string, BlockRange[]>();
 
@@ -14,19 +18,20 @@ export class PageMap {
     for (const page of pages) {
       const local = new Map<string, { start: number; end: number }>();
       for (const line of page.lines) {
-        const existing = local.get(line.blockId);
+        const key = blockKey(line.chapterId, line.blockId);
+        const existing = local.get(key);
         if (existing) {
           existing.start = Math.min(existing.start, line.startOffset);
           existing.end = Math.max(existing.end, line.endOffset);
         } else {
-          local.set(line.blockId, { start: line.startOffset, end: line.endOffset });
+          local.set(key, { start: line.startOffset, end: line.endOffset });
         }
       }
 
-      for (const [blockId, range] of local) {
-        const list = this.rangesByBlock.get(blockId) ?? [];
+      for (const [key, range] of local) {
+        const list = this.rangesByBlock.get(key) ?? [];
         list.push({ pageIndex: page.index, startOffset: range.start, endOffset: range.end });
-        this.rangesByBlock.set(blockId, list);
+        this.rangesByBlock.set(key, list);
       }
     }
   }
@@ -39,7 +44,7 @@ export class PageMap {
   }
 
   public findPageForAnchor(anchor: LogicalAnchor): number {
-    const ranges = this.rangesByBlock.get(anchor.blockId);
+    const ranges = this.rangesByBlock.get(blockKey(anchor.chapterId, anchor.blockId));
     if (!ranges || ranges.length === 0) return 0;
 
     for (const range of ranges) {
