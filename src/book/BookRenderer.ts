@@ -6,8 +6,24 @@ import { PageCurlSheet } from './PageCurlSheet';
 const PAGE_WIDTH = 2.3;
 const PAGE_HEIGHT = 2.95;
 const DRAG_DISTANCE_NDC = 1.05;
+const TURN_COMMIT_PROGRESS = 0.5;
+const FLICK_MIN_PROGRESS = 0.07;
+const FLICK_MIN_VELOCITY = 1.15;
+const RELEASE_PROJECTION_SECONDS = 0.1;
+const MAX_VELOCITY_SAMPLE_MS = 160;
 
+type TurnState = 'idle' | 'dragging' | 'settling';
 export type PageTurnDirection = 'forward' | 'backward';
+
+export interface PageTurnMotion {
+  readonly direction: PageTurnDirection;
+  readonly progress: number;
+  readonly completion: number;
+  readonly velocity: number;
+  readonly deltaProgress: number;
+  readonly tension: number;
+  readonly active: boolean;
+}
 
 export class BookRenderer {
   public readonly root = new THREE.Group();
@@ -31,12 +47,19 @@ export class BookRenderer {
   private twist = 0;
   private dragAmount = 0;
   private pointerWasDown = false;
-  private dragging = false;
-  private animating = false;
+  private turnState: TurnState = 'idle';
   private direction: PageTurnDirection = 'forward';
+  private gesturePointerId: number | null = null;
+  private gestureSerial = 0;
+  private settlingGestureSerial = 0;
+  private committedGestureSerial = -1;
   private dragStartX = 0;
   private dragStartY = 0;
   private dragStartProgress = 0;
+  private lastSampleTimestamp = 0;
+  private lastCompletionProgress = 0;
+  private completionVelocity = 0;
+  private motionIdleMs = 0;
   private animationStart = 0;
   private animationTarget = 0;
   private animationElapsedMs = 0;
@@ -44,6 +67,7 @@ export class BookRenderer {
   private reducedMotion = false;
   private pageChangeListener: ((leftPageIndex: number) => void) | null = null;
   private turnCompleteListener: ((direction: PageTurnDirection) => void) | null = null;
+  private turnMotionListener: ((motion: PageTurnMotion) => void) | null = null;
 
   public constructor() {
     this.root.rotation.x = -0.08;
@@ -104,6 +128,10 @@ export class BookRenderer {
     this.turnCompleteListener = listener;
   }
 
+  public setTurnMotionListener(listener: ((motion: PageTurnMotion) => void) | null): void {
+    this.turnMotionListener = listener;
+  }
+
   public setReducedMotion(enabled: boolean): void {
     this.reducedMotion = enabled;
   }
@@ -112,29 +140,42 @@ export class BookRenderer {
     if (this.pageSource && this.pageSource !== source) this.pageSource.dispose();
     this.pageSource = source;
     this.spreadLeftIndex = Math.max(0, Math.floor(initialPageIndex / 2) * 2);
-    this.progress = 0;
-    this.direction = 'forward';
-    this.dragging = false;
-    this.animating = false;
-    this.pointerWasDown = false;
-    this.twist = 0;
-    this.dragAmount = 0;
+    this.resetInteractionState();
     this.configureForwardVisual();
     this.pageSource.warmAround(this.spreadLeftIndex);
     this.pageChangeListener?.(this.spreadLeftIndex);
   }
 
   public handlePointer(pointer: PointerSnapshot, camera: THREE.Camera): boolean {
-    if (pointer.isDown && !this.pointerWasDown) this.beginDrag(pointer, camera);
-    else if (pointer.isDown && this.dragging) this.updateDrag(pointer);
-    else if (!pointer.isDown && this.pointerWasDown && this.dragging) this.endDrag();
+    if (pointer.isDown && !this.pointerWasDown) {
+      if (this.turnState === 'idle') this.beginDrag(pointer, camera);
+    } else if (pointer.isDown && this.turnState === 'dragging' && pointer.id === this.gesturePointerId) {
+      this.updateDrag(pointer);
+    } else if (!pointer.isDown && this.pointerWasDown && this.turnState === 'dragging' && pointer.id === this.gesturePointerId) {
+      // A very fast flick may contain no pointermove event at all. Always consume the
+      // pointerup coordinates before deciding whether the page commits.
+      this.updateDrag(pointer);
+      this.endDrag();
+    }
 
     this.pointerWasDown = pointer.isDown;
-    return this.dragging || this.animating;
+    if (!pointer.isDown && this.turnState !== 'dragging') this.gesturePointerId = null;
+    return this.turnState !== 'idle';
   }
 
   public update(deltaMs: number): boolean {
-    if (!this.animating) return this.dragging;
+    if (this.turnState === 'dragging') {
+      this.motionIdleMs += Math.max(0, deltaMs);
+      if (this.motionIdleMs > 34 && Math.abs(this.completionVelocity) > 0.001) {
+        const decay = Math.exp(-Math.max(0, deltaMs) / 52);
+        this.completionVelocity *= decay;
+        if (Math.abs(this.completionVelocity) < 0.012) this.completionVelocity = 0;
+        this.emitMotion(0, true);
+      }
+      return true;
+    }
+
+    if (this.turnState !== 'settling') return false;
 
     this.animationElapsedMs += Math.max(0, deltaMs);
     const rawT = THREE.MathUtils.clamp(this.animationElapsedMs / this.animationDurationMs, 0, 1);
@@ -145,17 +186,12 @@ export class BookRenderer {
     this.applySheetState();
 
     if (rawT >= 1) this.finishAnimation();
-    return this.dragging || this.animating;
+    return this.turnState !== 'idle';
   }
 
   public cancelInteraction(): void {
-    this.pointerWasDown = false;
-    this.dragging = false;
-    this.animating = false;
-    this.progress = 0;
-    this.direction = 'forward';
-    this.twist = 0;
-    this.dragAmount = 0;
+    this.emitMotion(0, false);
+    this.resetInteractionState();
     this.configureForwardVisual();
     this.applySheetState();
   }
@@ -165,6 +201,7 @@ export class BookRenderer {
     this.pageSource = null;
     this.pageChangeListener = null;
     this.turnCompleteListener = null;
+    this.turnMotionListener = null;
     this.turningSheet.dispose();
     this.fallbackTexture.dispose();
     for (const geometry of this.staticGeometries) geometry.dispose();
@@ -172,7 +209,7 @@ export class BookRenderer {
   }
 
   private beginDrag(pointer: PointerSnapshot, camera: THREE.Camera): void {
-    if (!this.pageSource) return;
+    if (!this.pageSource || this.turnState !== 'idle') return;
 
     this.pointerNdc.set(pointer.normalizedX, pointer.normalizedY);
     this.raycaster.setFromCamera(this.pointerNdc, camera);
@@ -196,17 +233,26 @@ export class BookRenderer {
       return;
     }
 
-    this.animating = false;
-    this.dragging = true;
+    this.turnState = 'dragging';
+    this.gesturePointerId = pointer.id;
+    this.gestureSerial += 1;
     this.dragStartX = pointer.normalizedX;
     this.dragStartY = pointer.normalizedY;
     this.dragStartProgress = this.progress;
+    this.lastSampleTimestamp = pointer.timestamp;
+    this.lastCompletionProgress = this.completionProgress();
+    this.completionVelocity = 0;
+    this.motionIdleMs = 0;
     this.twist = 0;
     this.dragAmount = this.reducedMotion ? 0 : 0.05;
     this.applySheetState();
+    this.emitMotion(0, true);
   }
 
   private updateDrag(pointer: PointerSnapshot): void {
+    if (this.turnState !== 'dragging' || pointer.id !== this.gesturePointerId) return;
+
+    const previousCompletion = this.lastCompletionProgress;
     const delta = (this.dragStartX - pointer.normalizedX) / DRAG_DISTANCE_NDC;
     this.progress = THREE.MathUtils.clamp(this.dragStartProgress + delta, 0, 1);
 
@@ -216,39 +262,111 @@ export class BookRenderer {
       ? 0
       : THREE.MathUtils.clamp(Math.abs(delta) * 2.2 + Math.abs(verticalDelta) * 0.55, 0, 1);
     this.applySheetState();
+
+    const completion = this.completionProgress();
+    const elapsedMs = pointer.timestamp - this.lastSampleTimestamp;
+    if (elapsedMs > 0 && elapsedMs <= MAX_VELOCITY_SAMPLE_MS) {
+      const instantVelocity = THREE.MathUtils.clamp((completion - previousCompletion) / (elapsedMs / 1000), -10, 10);
+      this.completionVelocity = THREE.MathUtils.lerp(this.completionVelocity, instantVelocity, 0.66);
+    } else if (elapsedMs > MAX_VELOCITY_SAMPLE_MS) {
+      this.completionVelocity = 0;
+    }
+
+    const deltaProgress = completion - previousCompletion;
+    this.lastCompletionProgress = completion;
+    this.lastSampleTimestamp = pointer.timestamp;
+    this.motionIdleMs = 0;
+    this.emitMotion(deltaProgress, true);
   }
 
   private endDrag(): void {
-    this.dragging = false;
-    this.animating = true;
+    if (this.turnState !== 'dragging') return;
+
+    const completion = this.completionProgress();
+    const forwardVelocity = Math.max(0, this.completionVelocity);
+    const projectedCompletion = completion + forwardVelocity * RELEASE_PROJECTION_SECONDS;
+    const fastFlick = completion >= FLICK_MIN_PROGRESS && forwardVelocity >= FLICK_MIN_VELOCITY;
+    const projectedCommit = completion >= 0.18 && projectedCompletion >= TURN_COMMIT_PROGRESS;
+    const completeTurn = completion >= TURN_COMMIT_PROGRESS || fastFlick || projectedCommit;
+
+    this.turnState = 'settling';
+    this.settlingGestureSerial = this.gestureSerial;
     this.animationStart = this.progress;
-    this.animationTarget = this.progress >= 0.5 ? 1 : 0;
+    this.animationTarget = this.direction === 'forward'
+      ? (completeTurn ? 1 : 0)
+      : (completeTurn ? 0 : 1);
     this.animationElapsedMs = 0;
+
     const remaining = Math.abs(this.animationTarget - this.animationStart);
-    this.animationDurationMs = this.reducedMotion ? 90 + remaining * 70 : 180 + remaining * 260;
+    const speedBonusMs = THREE.MathUtils.clamp(forwardVelocity * 30, 0, 105);
+    const normalDuration = 145 + remaining * 230 - speedBonusMs;
+    const reducedDuration = 72 + remaining * 72;
+    this.animationDurationMs = Math.max(this.reducedMotion ? 68 : 105, this.reducedMotion ? reducedDuration : normalDuration);
+
+    this.emitMotion(0, false);
   }
 
   private finishAnimation(): void {
+    if (this.turnState !== 'settling') return;
+
     const completedDirection = this.direction;
     const completedForward = completedDirection === 'forward' && this.animationTarget === 1;
     const completedBackward = completedDirection === 'backward' && this.animationTarget === 0;
+    const canCommit = this.committedGestureSerial !== this.settlingGestureSerial;
 
-    if (completedForward) this.spreadLeftIndex = Math.min(this.spreadLeftIndex + 2, Math.max(0, this.pageCount - 1));
-    if (completedBackward) this.spreadLeftIndex = Math.max(0, this.spreadLeftIndex - 2);
+    if (canCommit && completedForward) {
+      this.spreadLeftIndex = Math.min(this.spreadLeftIndex + 2, Math.max(0, this.pageCount - 1));
+      this.committedGestureSerial = this.settlingGestureSerial;
+    } else if (canCommit && completedBackward) {
+      this.spreadLeftIndex = Math.max(0, this.spreadLeftIndex - 2);
+      this.committedGestureSerial = this.settlingGestureSerial;
+    }
 
-    this.animating = false;
+    this.turnState = 'idle';
     this.progress = 0;
     this.direction = 'forward';
     this.twist = 0;
     this.dragAmount = 0;
+    this.completionVelocity = 0;
+    this.motionIdleMs = 0;
+    this.gesturePointerId = null;
     this.configureForwardVisual();
     this.applySheetState();
     this.pageSource?.warmAround(this.spreadLeftIndex);
 
-    if (completedForward || completedBackward) {
+    if (canCommit && (completedForward || completedBackward)) {
       this.pageChangeListener?.(this.spreadLeftIndex);
       this.turnCompleteListener?.(completedDirection);
     }
+  }
+
+  private completionProgress(): number {
+    return this.direction === 'forward' ? this.progress : 1 - this.progress;
+  }
+
+  private emitMotion(deltaProgress: number, active: boolean): void {
+    this.turnMotionListener?.({
+      direction: this.direction,
+      progress: this.progress,
+      completion: this.completionProgress(),
+      velocity: this.completionVelocity,
+      deltaProgress,
+      tension: this.dragAmount,
+      active
+    });
+  }
+
+  private resetInteractionState(): void {
+    this.pointerWasDown = false;
+    this.turnState = 'idle';
+    this.gesturePointerId = null;
+    this.progress = 0;
+    this.direction = 'forward';
+    this.twist = 0;
+    this.dragAmount = 0;
+    this.completionVelocity = 0;
+    this.motionIdleMs = 0;
+    this.animationElapsedMs = 0;
   }
 
   private configureForwardVisual(): void {
