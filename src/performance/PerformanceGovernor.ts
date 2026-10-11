@@ -1,10 +1,13 @@
 import type { QualityLevel, QualityProfile } from '../core/types';
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
-  high: { level: 'high', renderScale: 1, maxDevicePixelRatio: 2, ambientFps: 30 },
-  balanced: { level: 'balanced', renderScale: 1, maxDevicePixelRatio: 1.5, ambientFps: 24 },
-  low: { level: 'low', renderScale: 0.9, maxDevicePixelRatio: 1.25, ambientFps: 15 },
-  safe: { level: 'safe', renderScale: 0.75, maxDevicePixelRatio: 1, ambientFps: 10 }
+  // High is allowed to supersample a little on displays that can afford it.
+  high: { level: 'high', renderScale: 1.08, maxDevicePixelRatio: 2.25, ambientFps: 30 },
+  // Balanced is the reading baseline and now targets full native DPR on common
+  // 2x mobile displays instead of starting below the physical screen resolution.
+  balanced: { level: 'balanced', renderScale: 1, maxDevicePixelRatio: 2, ambientFps: 24 },
+  low: { level: 'low', renderScale: 0.9, maxDevicePixelRatio: 1.5, ambientFps: 15 },
+  safe: { level: 'safe', renderScale: 0.78, maxDevicePixelRatio: 1.25, ambientFps: 10 }
 };
 
 const ORDER: readonly QualityLevel[] = ['safe', 'low', 'balanced', 'high'];
