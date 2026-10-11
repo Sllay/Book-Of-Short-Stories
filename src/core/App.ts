@@ -1,4 +1,5 @@
 import { InputController } from '../input/InputController';
+import { SelectionGuard } from '../input/SelectionGuard';
 import { FrameMetrics } from '../performance/FrameMetrics';
 import { PerformanceGovernor } from '../performance/PerformanceGovernor';
 import { ReaderRenderer } from '../render/ReaderRenderer';
@@ -11,6 +12,7 @@ export class App {
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: ReaderRenderer;
   private readonly input: InputController;
+  private readonly selectionGuard: SelectionGuard;
   private readonly metrics = new FrameMetrics();
   private readonly governor = new PerformanceGovernor();
   private readonly scheduler: RenderScheduler;
@@ -29,6 +31,7 @@ export class App {
 
     this.renderer = new ReaderRenderer(this.canvas, this.governor.current);
     this.input = new InputController(this.canvas);
+    this.selectionGuard = new SelectionGuard(this.shell);
     this.debugHud = new DebugHud(this.shell);
     this.scheduler = new RenderScheduler(({ now }) => {
       const deltaMs = this.lastFrameTimestamp === 0 ? 0 : now - this.lastFrameTimestamp;
@@ -53,7 +56,7 @@ export class App {
 
   public start(): void { this.resize(); this.scheduler.setMode(document.hidden ? 'hidden' : 'static'); this.scheduler.invalidate(); }
   public destroy(): void {
-    this.scheduler.stop(); this.resizeObserver.disconnect(); this.input.destroy(); this.renderer.dispose(); this.debugHud.destroy();
+    this.scheduler.stop(); this.resizeObserver.disconnect(); this.input.destroy(); this.selectionGuard.destroy(); this.renderer.dispose(); this.debugHud.destroy();
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('orientationchange', this.resize);
     this.shell.remove();
@@ -62,13 +65,14 @@ export class App {
   private readonly handlePointer = (pointer: PointerSnapshot): void => {
     this.lastPointerX = pointer.normalizedX; this.lastPointerY = pointer.normalizedY;
     this.renderer.updatePointer(pointer);
+    this.shell.classList.toggle('is-interacting', pointer.isDown);
     if (pointer.isDown) this.scheduler.setMode('interactive');
     else { this.scheduler.setMode('static'); this.lastFrameTimestamp = 0; this.metrics.reset(); }
     this.scheduler.invalidate();
   };
 
   private readonly handleVisibilityChange = (): void => {
-    if (document.hidden) { this.scheduler.setMode('hidden'); this.metrics.reset(); this.lastFrameTimestamp = 0; return; }
+    if (document.hidden) { this.shell.classList.remove('is-interacting'); this.scheduler.setMode('hidden'); this.metrics.reset(); this.lastFrameTimestamp = 0; return; }
     this.scheduler.setMode('static'); this.scheduler.invalidate();
   };
 
