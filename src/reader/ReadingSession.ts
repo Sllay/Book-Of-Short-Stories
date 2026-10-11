@@ -47,39 +47,65 @@ export class ReadingSession {
     }
 
     this.setBusy(true, 'Lendo TXT…');
-    const text = await file.text();
-    const documentModel = importTxt(file.name, text);
-    await this.loadDocument(documentModel);
+    try {
+      const text = await file.text();
+      const documentModel = importTxt(file.name, text);
+      await this.loadDocument(documentModel);
+    } catch (error: unknown) {
+      // If parsing fails before loadDocument takes ownership, never leave the controls
+      // permanently disabled. The previous publication remains available.
+      if (this.busy) this.setBusy(false, 'Falha ao abrir TXT');
+      throw error;
+    }
   }
 
   public async loadDocument(documentModel: BookDocument, anchor: LogicalAnchor | null = null): Promise<void> {
     const generation = ++this.generation;
-    this.documentModel = documentModel;
+    const settings = this.typographyState;
     this.setBusy(true, 'Paginando livro…');
 
-    const result = await this.paginator.paginate(documentModel, this.typographyState);
-    if (generation !== this.generation) return;
+    try {
+      const result = await this.paginator.paginate(documentModel, settings);
+      if (generation !== this.generation) return;
 
-    this.pageMap = result.pageMap;
-    this.pageCount = result.pages.length;
+      const targetAnchor = anchor ?? firstAnchor(documentModel);
+      const targetPage = targetAnchor ? result.pageMap.findPageForAnchor(targetAnchor) : 0;
+      const targetLeftPage = Math.floor(targetPage / 2) * 2;
+      const cache = new PageTextureCache(result.pages, settings);
 
-    const targetAnchor = anchor ?? firstAnchor(documentModel);
-    const targetPage = targetAnchor ? result.pageMap.findPageForAnchor(targetAnchor) : 0;
-    this.currentLeftPage = Math.floor(targetPage / 2) * 2;
+      // Commit the new session only after pagination has succeeded. This keeps the
+      // currently readable book intact if a malformed or extreme import fails.
+      this.documentModel = documentModel;
+      this.pageMap = result.pageMap;
+      this.pageCount = result.pages.length;
+      this.currentLeftPage = targetLeftPage;
+      this.renderer.setPublication(cache, this.currentLeftPage);
+      cache.warmAround(this.currentLeftPage);
 
-    const cache = new PageTextureCache(result.pages, this.typographyState);
-    this.renderer.setPublication(cache, this.currentLeftPage);
-    cache.warmAround(this.currentLeftPage);
-
-    this.setBusy(false, 'Pronto');
+      this.setBusy(false, 'Pronto');
+    } catch (error: unknown) {
+      if (generation === this.generation) this.setBusy(false, 'Falha ao paginar');
+      throw error;
+    }
   }
 
   public async updateTypography(patch: Partial<TypographySettings>): Promise<void> {
-    if (!this.documentModel || this.busy) return;
+    if (!this.documentModel) return;
 
-    const anchor = this.pageMap?.getPageStart(this.currentLeftPage) ?? firstAnchor(this.documentModel);
-    this.typographyState = { ...this.typographyState, ...patch };
-    await this.loadDocument(this.documentModel, anchor);
+    const documentModel = this.documentModel;
+    const anchor = this.pageMap?.getPageStart(this.currentLeftPage) ?? firstAnchor(documentModel);
+    const previousSettings = this.typographyState;
+    const nextSettings: TypographySettings = { ...previousSettings, ...patch };
+    this.typographyState = nextSettings;
+
+    try {
+      // Do not discard a later slider change just because an earlier pagination pass
+      // is still running. generation makes stale results harmless and the last change wins.
+      await this.loadDocument(documentModel, anchor);
+    } catch (error: unknown) {
+      if (this.typographyState === nextSettings) this.typographyState = previousSettings;
+      throw error;
+    }
   }
 
   public dispose(): void {
