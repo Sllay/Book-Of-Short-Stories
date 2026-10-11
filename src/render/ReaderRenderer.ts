@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { BookRenderer } from '../book/BookRenderer';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
 
+const MAX_FRAMEBUFFER_PIXELS = 4_200_000;
+
 export class ReaderRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -46,10 +48,7 @@ export class ReaderRenderer {
     this.width = Math.max(1, Math.floor(width));
     this.height = Math.max(1, Math.floor(height));
 
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const pixelRatio = Math.min(devicePixelRatio, this.quality.maxDevicePixelRatio) * this.quality.renderScale;
-
-    this.renderer.setPixelRatio(Math.max(1, pixelRatio));
+    this.renderer.setPixelRatio(this.computePixelRatio());
     this.renderer.setSize(this.width, this.height, false);
 
     this.camera.aspect = this.width / this.height;
@@ -76,6 +75,18 @@ export class ReaderRenderer {
   public dispose(): void {
     this.book.dispose();
     this.renderer.dispose();
+  }
+
+  private computePixelRatio(): number {
+    const devicePixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    const requested = Math.min(devicePixelRatio, this.quality.maxDevicePixelRatio) * this.quality.renderScale;
+
+    // Keep phones at their full physical resolution whenever possible. Very large
+    // tablet/desktop viewports are capped by total framebuffer pixels instead of a
+    // blunt DPR limit, so a 4K monitor cannot accidentally allocate a gigantic canvas.
+    const cssPixels = Math.max(1, this.width * this.height);
+    const budgetRatio = Math.sqrt(MAX_FRAMEBUFFER_PIXELS / cssPixels);
+    return THREE.MathUtils.clamp(Math.min(requested, budgetRatio), 1, 2.35);
   }
 
   private applyCameraPose(): void {
