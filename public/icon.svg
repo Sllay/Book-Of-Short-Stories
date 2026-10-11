@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Book of Short Stories icon">
+  <rect width="512" height="512" rx="96" fill="#17130f"/>
+  <path d="M74 128c58-18 117-8 182 34v244c-65-42-124-52-182-34V128Z" fill="#efe3c7"/>
+  <path d="M438 128c-58-18-117-8-182 34v244c65-42 124-52 182-34V128Z" fill="#f7ecd5"/>
+  <path d="M256 162v244" stroke="#b99f75" stroke-width="10" stroke-linecap="round"/>
+</svg>
