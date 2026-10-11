@@ -2,26 +2,31 @@ import * as THREE from 'three';
 
 export class PageCurlSheet {
   public readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+
   private readonly uniforms: {
     uFrontMap: { value: THREE.Texture };
     uBackMap: { value: THREE.Texture };
     uProgress: { value: number };
+    uGrabX: { value: number };
     uGrabY: { value: number };
     uTwist: { value: number };
+    uDragAmount: { value: number };
     uWidth: { value: number };
     uHeight: { value: number };
   };
 
   public constructor(width: number, height: number, front: THREE.Texture, back: THREE.Texture) {
-    const geometry = new THREE.PlaneGeometry(width, height, 40, 28);
+    const geometry = new THREE.PlaneGeometry(width, height, 44, 30);
     geometry.translate(width / 2, 0, 0);
 
     this.uniforms = {
       uFrontMap: { value: front },
       uBackMap: { value: back },
       uProgress: { value: 0 },
+      uGrabX: { value: 0.9 },
       uGrabY: { value: 0.5 },
       uTwist: { value: 0 },
+      uDragAmount: { value: 0 },
       uWidth: { value: width },
       uHeight: { value: height }
     };
@@ -30,16 +35,23 @@ export class PageCurlSheet {
       uniforms: this.uniforms,
       side: THREE.DoubleSide,
       transparent: false,
+      depthTest: true,
+      depthWrite: true,
+      blending: THREE.NoBlending,
       vertexShader: `
         uniform float uProgress;
+        uniform float uGrabX;
         uniform float uGrabY;
         uniform float uTwist;
+        uniform float uDragAmount;
         uniform float uWidth;
         uniform float uHeight;
 
         varying vec2 vUv;
         varying float vCurve;
         varying float vTurn;
+        varying float vWrinkle;
+        varying float vGrabInfluence;
 
         const float PI = 3.141592653589793;
 
@@ -49,20 +61,26 @@ export class PageCurlSheet {
 
           float pageU = clamp(p.x / uWidth, 0.0, 1.0);
           float pageV = clamp((p.y / uHeight) + 0.5, 0.0, 1.0);
+          vec2 pageUv = vec2(pageU, pageV);
+          vec2 grabUv = vec2(uGrabX, uGrabY);
 
-          // The row nearest the grabbed point leads the turn slightly. This breaks the
-          // unnatural full-height vertical fold and gives the page a diagonal response.
           float baseArc = sin(uProgress * PI);
           float rowDistance = abs(pageV - uGrabY);
-          float localProgress = clamp(uProgress - rowDistance * 0.11 * baseArc, 0.0, 1.0);
+          float grabDistance = distance(pageUv, grabUv);
+          float grabInfluence = exp(-grabDistance * 4.5);
+
+          // The touched region leads the page while rows farther away lag behind.
+          // This makes top-corner, middle-edge and bottom-corner drags visibly different.
+          float touchLead = grabInfluence * 0.13 * baseArc;
+          float rowLag = rowDistance * mix(0.20, 0.10, uGrabX) * baseArc;
+          float spineLag = (1.0 - pageU) * 0.025 * baseArc;
+          float localProgress = clamp(uProgress + touchLead - rowLag - spineLag, 0.0, 1.0);
           float arc = sin(localProgress * PI);
 
-          // Outer edge travels from +width to -width. The middle control point lifts
-          // the sheet into an arch, so the page keeps visible area around mid-turn
-          // instead of collapsing into a thin "loading bar" at the spine.
+          // Quadratic arch. The free edge crosses the book while the centre stays lifted.
           float edgeX = mix(uWidth, -uWidth, localProgress);
-          float controlX = edgeX * 0.5 + uWidth * 0.54 * arc;
-          float controlZ = uWidth * 0.78 * arc;
+          float controlX = edgeX * 0.5 + uWidth * (0.50 + 0.08 * grabInfluence) * arc;
+          float controlZ = uWidth * (0.72 + 0.12 * grabInfluence) * arc;
 
           float t = pageU;
           float invT = 1.0 - t;
@@ -72,13 +90,31 @@ export class PageCurlSheet {
           p.x = curveX;
           p.z += curveZ;
 
-          // Vertical finger movement introduces a small torsion, strongest toward the
-          // free edge. The spine stays stable.
-          p.y += uTwist * 0.16 * t * t * arc;
-          p.z += uTwist * (pageV - uGrabY) * 0.10 * t * arc;
+          // Initial grab height influences the whole free edge slightly; subsequent
+          // finger movement contributes torsion through uTwist.
+          float grabBias = (uGrabY - 0.5) * 2.0;
+          p.y += grabBias * 0.055 * t * t * arc;
+          p.y += uTwist * 0.17 * t * t * arc;
+          p.z += uTwist * (pageV - uGrabY) * 0.13 * t * arc;
+
+          // Subtle procedural paper tension. It exists only while the user is actually
+          // pulling the sheet and is concentrated near the grab and bend regions.
+          float dragEnvelope = uDragAmount * arc * smoothstep(0.06, 0.52, pageU);
+          float waveA = sin(pageU * 35.0 + pageV * 21.0 + uProgress * 4.0);
+          float waveB = sin(pageU * 17.0 - pageV * 31.0 - uProgress * 3.0);
+          float radial = sin(grabDistance * 68.0 - uProgress * 5.0) * exp(-grabDistance * 6.5);
+          float wrinkle = (waveA * 0.62 + waveB * 0.38) * 0.012;
+          wrinkle += radial * 0.010;
+          wrinkle *= dragEnvelope * (0.28 + 0.72 * grabInfluence);
+
+          p.z += wrinkle;
+          p.y += wrinkle * 0.20 * (0.35 + pageU);
 
           vCurve = arc * sin(pageU * PI);
           vTurn = localProgress;
+          vWrinkle = wrinkle / 0.022;
+          vGrabInfluence = grabInfluence;
+
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
       `,
@@ -89,21 +125,24 @@ export class PageCurlSheet {
         varying vec2 vUv;
         varying float vCurve;
         varying float vTurn;
+        varying float vWrinkle;
+        varying float vGrabInfluence;
 
         void main() {
           vec2 sampleUv = gl_FrontFacing ? vUv : vec2(1.0 - vUv.x, vUv.y);
-          vec4 paper = gl_FrontFacing
-            ? texture2D(uFrontMap, sampleUv)
-            : texture2D(uBackMap, sampleUv);
+          vec3 paper = gl_FrontFacing
+            ? texture2D(uFrontMap, sampleUv).rgb
+            : texture2D(uBackMap, sampleUv).rgb;
 
-          // Cheap paper lighting: enough to describe the arch without making the
-          // sheet look metallic or plastic.
-          float trough = 1.0 - vCurve * 0.16;
-          float softHighlight = 1.0 + vCurve * 0.055 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
+          float trough = 1.0 - vCurve * 0.15;
+          float softHighlight = 1.0 + vCurve * 0.052 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
           float edgeTone = 0.985 + 0.015 * sin(sampleUv.x * 3.14159265);
-          float turnTone = mix(1.0, 0.97, smoothstep(0.35, 0.75, vTurn) * vCurve);
+          float turnTone = mix(1.0, 0.968, smoothstep(0.35, 0.75, vTurn) * vCurve);
+          float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.022 * (0.35 + 0.65 * vGrabInfluence);
 
-          gl_FragColor = vec4(paper.rgb * trough * softHighlight * edgeTone * turnTone, paper.a);
+          // Force a fully opaque sheet. No alpha from the source texture is allowed
+          // to reveal the page underneath while the paper is turning.
+          gl_FragColor = vec4(paper * trough * softHighlight * edgeTone * turnTone * wrinkleShade, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
@@ -118,12 +157,17 @@ export class PageCurlSheet {
     this.uniforms.uProgress.value = THREE.MathUtils.clamp(progress, 0, 1);
   }
 
-  public setGrabY(grabY: number): void {
+  public setGrabPoint(grabX: number, grabY: number): void {
+    this.uniforms.uGrabX.value = THREE.MathUtils.clamp(grabX, 0, 1);
     this.uniforms.uGrabY.value = THREE.MathUtils.clamp(grabY, 0, 1);
   }
 
   public setTwist(twist: number): void {
     this.uniforms.uTwist.value = THREE.MathUtils.clamp(twist, -1, 1);
+  }
+
+  public setDragAmount(amount: number): void {
+    this.uniforms.uDragAmount.value = THREE.MathUtils.clamp(amount, 0, 1);
   }
 
   public dispose(): void {

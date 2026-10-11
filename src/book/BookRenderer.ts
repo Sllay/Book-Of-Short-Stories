@@ -21,7 +21,9 @@ export class BookRenderer {
 
   private progress = 0;
   private twist = 0;
+  private grabX = 0.9;
   private grabY = 0.5;
+  private dragAmount = 0;
   private pointerWasDown = false;
   private dragging = false;
   private animating = false;
@@ -75,6 +77,8 @@ export class BookRenderer {
     this.hitRight = this.createHitSurface(PAGE_WIDTH / 2);
     this.hitLeft = this.createHitSurface(-PAGE_WIDTH / 2);
     this.root.add(this.hitRight, this.hitLeft);
+
+    this.applySheetState();
   }
 
   public handlePointer(pointer: PointerSnapshot, camera: THREE.Camera): boolean {
@@ -92,13 +96,16 @@ export class BookRenderer {
     this.animationElapsedMs += Math.max(0, deltaMs);
     const rawT = THREE.MathUtils.clamp(this.animationElapsedMs / this.animationDurationMs, 0, 1);
     const eased = 1 - Math.pow(1 - rawT, 3);
+
     this.progress = THREE.MathUtils.lerp(this.animationStart, this.animationTarget, eased);
     this.twist = THREE.MathUtils.lerp(this.twist, 0, Math.min(1, rawT * 0.22 + 0.08));
+    this.dragAmount = 1 - THREE.MathUtils.smoothstep(rawT, 0.0, 0.55);
     this.applySheetState();
 
     if (rawT >= 1) {
       this.progress = this.animationTarget;
       this.twist = 0;
+      this.dragAmount = 0;
       this.animating = false;
       this.applySheetState();
     }
@@ -111,6 +118,7 @@ export class BookRenderer {
     this.dragging = false;
     this.animating = false;
     this.twist = 0;
+    this.dragAmount = 0;
     this.progress = this.progress >= 0.5 ? 1 : 0;
     this.applySheetState();
   }
@@ -126,18 +134,24 @@ export class BookRenderer {
     this.pointerNdc.set(pointer.normalizedX, pointer.normalizedY);
     this.raycaster.setFromCamera(this.pointerNdc, camera);
 
-    const target = this.progress < 0.5 ? this.hitRight : this.hitLeft;
-    const intersections = this.raycaster.intersectObject(target, false);
-    const hit = intersections[0];
+    const fromRight = this.progress < 0.5;
+    const target = fromRight ? this.hitRight : this.hitLeft;
+    const hit = this.raycaster.intersectObject(target, false)[0];
     if (!hit) return;
+
+    const hitUv = hit.uv ?? new THREE.Vector2(0.9, 0.5);
 
     this.animating = false;
     this.dragging = true;
     this.dragStartX = pointer.normalizedX;
     this.dragStartY = pointer.normalizedY;
     this.dragStartProgress = this.progress;
-    this.grabY = hit.uv?.y ?? 0.5;
+
+    // Map the left-side hit back to the turning sheet's original UV orientation.
+    this.grabX = THREE.MathUtils.clamp(fromRight ? hitUv.x : 1 - hitUv.x, 0.06, 1);
+    this.grabY = THREE.MathUtils.clamp(hitUv.y, 0.02, 0.98);
     this.twist = 0;
+    this.dragAmount = 1;
     this.applySheetState();
   }
 
@@ -146,7 +160,8 @@ export class BookRenderer {
     this.progress = THREE.MathUtils.clamp(this.dragStartProgress + delta, 0, 1);
 
     const verticalDelta = pointer.normalizedY - this.dragStartY;
-    this.twist = THREE.MathUtils.clamp(verticalDelta * 1.65, -1, 1);
+    this.twist = THREE.MathUtils.clamp(verticalDelta * 1.8, -1, 1);
+    this.dragAmount = 1;
     this.applySheetState();
   }
 
@@ -156,14 +171,16 @@ export class BookRenderer {
     this.animationStart = this.progress;
     this.animationTarget = this.progress >= 0.5 ? 1 : 0;
     this.animationElapsedMs = 0;
+
     const remaining = Math.abs(this.animationTarget - this.animationStart);
     this.animationDurationMs = 180 + remaining * 260;
   }
 
   private applySheetState(): void {
     this.turningSheet.setProgress(this.progress);
-    this.turningSheet.setGrabY(this.grabY);
+    this.turningSheet.setGrabPoint(this.grabX, this.grabY);
     this.turningSheet.setTwist(this.twist);
+    this.turningSheet.setDragAmount(this.dragAmount);
   }
 
   private createStaticPage(texture: THREE.Texture): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial> {
@@ -173,7 +190,11 @@ export class BookRenderer {
       color: 0xffffff,
       roughness: 0.98,
       metalness: 0,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      transparent: false,
+      opacity: 1,
+      depthTest: true,
+      depthWrite: true
     }));
     return new THREE.Mesh(geometry, material);
   }
@@ -182,6 +203,7 @@ export class BookRenderer {
     const geometry = this.trackGeometry(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT));
     const material = this.trackMaterial(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
     material.colorWrite = false;
+
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, 0, 0.12);
     mesh.renderOrder = -1;

@@ -5,6 +5,7 @@ import { PerformanceGovernor } from '../performance/PerformanceGovernor';
 import { ReaderRenderer } from '../render/ReaderRenderer';
 import { RenderScheduler } from '../runtime/RenderScheduler';
 import { DebugHud } from '../ui/DebugHud';
+import { ZoomControl } from '../ui/ZoomControl';
 import type { PointerSnapshot } from './types';
 
 export class App {
@@ -17,6 +18,7 @@ export class App {
   private readonly governor = new PerformanceGovernor();
   private readonly scheduler: RenderScheduler;
   private readonly debugHud: DebugHud;
+  private readonly zoomControl: ZoomControl;
   private readonly resizeObserver: ResizeObserver;
   private lastPointerX = 0;
   private lastPointerY = 0;
@@ -57,22 +59,30 @@ export class App {
 
       if (!stillInteracting && !this.pointerIsDown && this.scheduler.currentMode === 'interactive') {
         this.shell.classList.remove('is-interacting');
+        this.governor.endCriticalInteraction();
         this.scheduler.setMode('static');
         this.metrics.reset();
       }
     });
 
     this.input.subscribe(this.handlePointer);
+
     this.governor.subscribe((profile) => {
       this.renderer.setQuality(profile);
       this.scheduler.setAmbientFps(profile.ambientFps);
       this.scheduler.invalidate();
     });
 
+    this.zoomControl = new ZoomControl(this.shell, (value) => {
+      this.renderer.setZoom(value);
+      this.scheduler.invalidate();
+    });
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.shell);
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
-    window.addEventListener('orientationchange', this.resize);
+    window.addEventListener('orientationchange', this.handleViewportChange);
+    window.addEventListener('resize', this.handleViewportChange);
   }
 
   public start(): void {
@@ -86,10 +96,12 @@ export class App {
     this.resizeObserver.disconnect();
     this.input.destroy();
     this.selectionGuard.destroy();
+    this.zoomControl.destroy();
     this.renderer.dispose();
     this.debugHud.destroy();
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
-    window.removeEventListener('orientationchange', this.resize);
+    window.removeEventListener('orientationchange', this.handleViewportChange);
+    window.removeEventListener('resize', this.handleViewportChange);
     this.shell.remove();
   }
 
@@ -98,12 +110,19 @@ export class App {
     this.lastPointerY = pointer.normalizedY;
     this.pointerIsDown = pointer.isDown;
 
+    const wasInteractive = this.scheduler.currentMode === 'interactive';
     const active = this.renderer.updatePointer(pointer);
     this.shell.classList.toggle('is-interacting', active);
 
     if (active) {
+      if (!wasInteractive) {
+        this.metrics.reset();
+        this.scheduler.resetTiming();
+        this.governor.beginCriticalInteraction();
+      }
       this.scheduler.setMode('interactive');
     } else if (!pointer.isDown) {
+      this.governor.endCriticalInteraction();
       this.scheduler.setMode('static');
       this.metrics.reset();
     }
@@ -116,17 +135,28 @@ export class App {
       this.pointerIsDown = false;
       this.renderer.cancelInteraction();
       this.shell.classList.remove('is-interacting');
+      this.governor.endCriticalInteraction();
       this.scheduler.setMode('hidden');
+      this.scheduler.resetTiming();
       this.metrics.reset();
       return;
     }
 
+    this.governor.resetAfterViewportChange();
+    this.scheduler.resetTiming();
     this.scheduler.setMode('static');
     this.scheduler.invalidate();
   };
 
+  private readonly handleViewportChange = (): void => {
+    requestAnimationFrame(this.resize);
+  };
+
   private readonly resize = (): void => {
     const rect = this.shell.getBoundingClientRect();
+    this.metrics.reset();
+    this.scheduler.resetTiming();
+    this.governor.resetAfterViewportChange();
     this.renderer.resize(rect.width, rect.height);
     this.scheduler.invalidate();
   };
