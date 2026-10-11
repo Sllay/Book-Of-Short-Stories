@@ -9,13 +9,35 @@
 html, body, #app {
   width: 100%; height: 100%; margin: 0; overflow: hidden;
   overscroll-behavior: none; touch-action: none; background: #17130f;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 body { min-width: 320px; min-height: 100dvh; }
 .reader-shell {
   position: relative; width: 100%; height: 100%;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
   background: radial-gradient(circle at 50% 42%, rgba(107,79,51,.28), transparent 45%), linear-gradient(180deg,#241b14 0%,#17130f 100%);
 }
-.reader-canvas { display: block; width: 100%; height: 100%; outline: none; }
+.reader-canvas {
+  display: block; width: 100%; height: 100%; outline: none;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Future stationary DOM text layer. Only elements explicitly marked as reader-selectable
+   may use native selection/copy. Interaction temporarily disables it again. */
+[data-reader-selectable="true"] {
+  -webkit-user-select: text; user-select: text;
+  -webkit-touch-callout: default;
+}
+.reader-shell.is-interacting [data-reader-selectable="true"] {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .foundation-label {
   position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
   padding: 8px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
