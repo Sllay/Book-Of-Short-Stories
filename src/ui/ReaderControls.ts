@@ -4,16 +4,24 @@ import type { ReadingSessionState } from '../reader/ReadingSession';
 interface ReaderControlsCallbacks {
   readonly onImport: (file: File) => Promise<void>;
   readonly onTypography: (patch: Partial<TypographySettings>) => Promise<void>;
+  readonly onToggleBookmark: () => Promise<boolean>;
+  readonly onFocusMode: (enabled: boolean) => Promise<void> | void;
+  readonly onAudioEnabled: (enabled: boolean) => Promise<void> | void;
 }
 
 export class ReaderControls {
   private readonly root = document.createElement('div');
   private readonly importButton = document.createElement('button');
   private readonly typeButton = document.createElement('button');
+  private readonly bookmarkButton = document.createElement('button');
+  private readonly focusButton = document.createElement('button');
+  private readonly audioButton = document.createElement('button');
   private readonly fileInput = document.createElement('input');
   private readonly panel = document.createElement('div');
   private readonly status = document.createElement('div');
   private debounceTimer: number | null = null;
+  private focusEnabled = false;
+  private audioEnabled = true;
 
   public constructor(
     host: HTMLElement,
@@ -32,13 +40,28 @@ export class ReaderControls {
     this.typeButton.textContent = 'Aa';
     this.typeButton.title = 'Tipografia';
 
+    this.bookmarkButton.type = 'button';
+    this.bookmarkButton.className = 'reader-tool-button';
+    this.bookmarkButton.textContent = '☆';
+    this.bookmarkButton.title = 'Adicionar bookmark nesta página';
+
+    this.focusButton.type = 'button';
+    this.focusButton.className = 'reader-tool-button focus-button';
+    this.focusButton.textContent = '◐';
+    this.focusButton.title = 'Focus Mode';
+
+    this.audioButton.type = 'button';
+    this.audioButton.className = 'reader-tool-button';
+    this.audioButton.textContent = '🔊';
+    this.audioButton.title = 'Som de página';
+
     this.fileInput.type = 'file';
     this.fileInput.accept = '.txt,text/plain';
     this.fileInput.hidden = true;
 
     const toolbar = document.createElement('div');
     toolbar.className = 'reader-toolbar';
-    toolbar.append(this.importButton, this.typeButton);
+    toolbar.append(this.importButton, this.typeButton, this.bookmarkButton, this.focusButton, this.audioButton);
 
     this.panel.className = 'typography-panel';
     this.panel.hidden = true;
@@ -53,20 +76,46 @@ export class ReaderControls {
     this.importButton.addEventListener('click', this.openFilePicker);
     this.fileInput.addEventListener('change', this.handleFileSelected);
     this.typeButton.addEventListener('click', this.toggleTypographyPanel);
+    this.bookmarkButton.addEventListener('click', this.toggleBookmark);
+    this.focusButton.addEventListener('click', this.toggleFocusMode);
+    this.audioButton.addEventListener('click', this.toggleAudio);
   }
 
   public setState(state: ReadingSessionState): void {
     this.importButton.disabled = state.busy;
     this.typeButton.disabled = state.busy;
+    this.bookmarkButton.disabled = state.busy;
     const pages = state.pageCount > 0 ? ` • pág. ${state.page}/${state.pageCount}` : '';
     this.status.textContent = state.busy ? state.message : `${state.title}${pages}`;
     this.status.classList.toggle('is-busy', state.busy);
   }
 
+  public setBookmarked(bookmarked: boolean): void {
+    this.bookmarkButton.textContent = bookmarked ? '🔖' : '☆';
+    this.bookmarkButton.classList.toggle('is-active', bookmarked);
+    this.bookmarkButton.title = bookmarked ? 'Remover bookmark desta página' : 'Adicionar bookmark nesta página';
+  }
+
+  public setFocusMode(enabled: boolean): void {
+    this.focusEnabled = enabled;
+    this.focusButton.classList.toggle('is-active', enabled);
+    this.focusButton.textContent = enabled ? '●' : '◐';
+  }
+
+  public setAudioEnabled(enabled: boolean): void {
+    this.audioEnabled = enabled;
+    this.audioButton.classList.toggle('is-active', enabled);
+    this.audioButton.textContent = enabled ? '🔊' : '🔇';
+  }
+
   public showError(message: string): void {
     this.status.textContent = message;
     this.status.classList.add('is-error');
-    window.setTimeout(() => this.status.classList.remove('is-error'), 2800);
+    window.setTimeout(() => this.status.classList.remove('is-error'), 3200);
+  }
+
+  public showMessage(message: string): void {
+    this.status.textContent = message;
   }
 
   public destroy(): void {
@@ -74,6 +123,9 @@ export class ReaderControls {
     this.importButton.removeEventListener('click', this.openFilePicker);
     this.fileInput.removeEventListener('change', this.handleFileSelected);
     this.typeButton.removeEventListener('click', this.toggleTypographyPanel);
+    this.bookmarkButton.removeEventListener('click', this.toggleBookmark);
+    this.focusButton.removeEventListener('click', this.toggleFocusMode);
+    this.audioButton.removeEventListener('click', this.toggleAudio);
     this.root.remove();
   }
 
@@ -168,7 +220,7 @@ export class ReaderControls {
     this.fileInput.value = '';
     if (!file) return;
     void this.callbacks.onImport(file).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Não foi possível abrir o TXT.';
+      const message = error instanceof Error ? error.message : 'Não foi possível abrir o livro.';
       this.showError(message);
     });
   };
@@ -176,5 +228,25 @@ export class ReaderControls {
   private readonly toggleTypographyPanel = (): void => {
     this.panel.hidden = !this.panel.hidden;
     this.typeButton.classList.toggle('is-active', !this.panel.hidden);
+  };
+
+  private readonly toggleBookmark = (): void => {
+    void this.callbacks.onToggleBookmark()
+      .then((bookmarked) => this.setBookmarked(bookmarked))
+      .catch((error: unknown) => {
+        this.showError(error instanceof Error ? error.message : 'Não foi possível alterar o bookmark.');
+      });
+  };
+
+  private readonly toggleFocusMode = (): void => {
+    const enabled = !this.focusEnabled;
+    this.setFocusMode(enabled);
+    void Promise.resolve(this.callbacks.onFocusMode(enabled)).catch(() => this.setFocusMode(!enabled));
+  };
+
+  private readonly toggleAudio = (): void => {
+    const enabled = !this.audioEnabled;
+    this.setAudioEnabled(enabled);
+    void Promise.resolve(this.callbacks.onAudioEnabled(enabled)).catch(() => this.setAudioEnabled(!enabled));
   };
 }

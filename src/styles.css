@@ -28,15 +28,43 @@ body { min-width: 320px; min-height: 100dvh; }
   position: relative;
   width: 100%;
   height: 100%;
+  isolation: isolate;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  background: linear-gradient(180deg,#241b14 0%,#17130f 100%);
+}
+
+.reader-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: url('/default-assets/reading-desk.svg') center / cover no-repeat;
+  opacity: .72;
+  transition: opacity 220ms ease, filter 220ms ease;
+}
+
+.reader-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background:
-    radial-gradient(circle at 50% 40%, rgba(121,91,61,.26), transparent 46%),
-    linear-gradient(180deg,#241b14 0%,#17130f 100%);
+    radial-gradient(circle at 50% 46%, transparent 22%, rgba(10,7,5,.08) 60%, rgba(8,6,4,.34) 100%),
+    linear-gradient(180deg, rgba(255,225,184,.025), rgba(0,0,0,.08));
+}
+
+.reader-shell.focus-mode::before {
+  opacity: .28;
+  filter: saturate(.72) brightness(.62);
 }
 
 .reader-canvas {
+  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
@@ -61,6 +89,7 @@ body { min-width: 320px; min-height: 100dvh; }
 
 .foundation-label {
   position: absolute;
+  z-index: 12;
   left: max(16px, env(safe-area-inset-left));
   bottom: max(16px, env(safe-area-inset-bottom));
   padding: 8px 12px;
@@ -73,10 +102,12 @@ body { min-width: 320px; min-height: 100dvh; }
   letter-spacing: .04em;
   pointer-events: none;
   user-select: none;
+  transition: opacity 180ms ease;
 }
 
 .interaction-hint {
   position: absolute;
+  z-index: 12;
   left: 50%;
   top: max(14px, env(safe-area-inset-top));
   transform: translateX(-50%);
@@ -94,6 +125,9 @@ body { min-width: 320px; min-height: 100dvh; }
 }
 
 .reader-shell.is-interacting .interaction-hint { opacity: .18; }
+.reader-shell.focus-mode .interaction-hint,
+.reader-shell.focus-mode .foundation-label,
+.reader-shell.focus-mode .reader-status { opacity: 0; }
 
 .reader-controls {
   position: absolute;
@@ -105,7 +139,9 @@ body { min-width: 320px; min-height: 100dvh; }
 
 .reader-toolbar {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-width: min(78vw, 430px);
   pointer-events: auto;
 }
 
@@ -121,18 +157,24 @@ body { min-width: 320px; min-height: 100dvh; }
 }
 
 .reader-tool-button {
+  min-width: 36px;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 10px;
   cursor: pointer;
+  transition: opacity 170ms ease, background 120ms ease, transform 120ms ease;
 }
 
+.reader-tool-button:active { transform: scale(.96); }
 .reader-tool-button.is-active,
 .reader-tool-button:focus-visible {
-  background: rgba(76,56,40,.90);
+  background: rgba(76,56,40,.92);
   box-shadow: 0 0 0 2px rgba(244,234,215,.14);
 }
 
 .reader-tool-button:disabled { opacity: .45; }
+.reader-shell.focus-mode .reader-tool-button:not(.focus-button) { opacity: .24; }
+.reader-shell.focus-mode .reader-tool-button:not(.focus-button):focus,
+.reader-shell.focus-mode .reader-tool-button:not(.focus-button):active { opacity: 1; }
 
 .typography-panel {
   width: min(270px, 72vw);
@@ -140,13 +182,15 @@ body { min-width: 320px; min-height: 100dvh; }
   padding: 12px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,.09);
-  background: rgba(17,13,10,.88);
+  background: rgba(17,13,10,.90);
   box-shadow: 0 12px 32px rgba(0,0,0,.26);
   backdrop-filter: blur(14px);
   pointer-events: auto;
 }
 
 .typography-panel[hidden] { display: none; }
+.reader-shell.focus-mode .typography-panel { opacity: .16; }
+.reader-shell.focus-mode .typography-panel:focus-within { opacity: 1; }
 
 .typography-field {
   display: grid;
@@ -171,16 +215,16 @@ body { min-width: 320px; min-height: 100dvh; }
 
 .reader-status {
   margin-top: 8px;
-  max-width: min(330px, 72vw);
+  max-width: min(350px, 74vw);
   padding: 7px 10px;
   border-radius: 10px;
   color: rgba(244,234,215,.66);
-  background: rgba(14,11,9,.34);
+  background: rgba(14,11,9,.38);
   border: 1px solid rgba(255,255,255,.05);
   font-size: 10px;
   line-height: 1.3;
   pointer-events: none;
-  transition: opacity 140ms ease, color 140ms ease;
+  transition: opacity 160ms ease, color 140ms ease;
 }
 
 .reader-status.is-busy { color: rgba(244,218,170,.90); }
@@ -197,7 +241,11 @@ body { min-width: 320px; min-height: 100dvh; }
   touch-action: none;
   pointer-events: auto;
   z-index: 20;
+  transition: opacity 180ms ease;
 }
+
+.reader-shell.focus-mode .zoom-control { opacity: .18; }
+.reader-shell.focus-mode .zoom-control:active { opacity: 1; }
 
 .zoom-rail {
   position: absolute;
@@ -241,6 +289,7 @@ body { min-width: 320px; min-height: 100dvh; }
 
 .debug-hud {
   position: absolute;
+  z-index: 40;
   top: max(12px, env(safe-area-inset-top));
   right: max(66px, calc(env(safe-area-inset-right) + 66px));
   min-width: 178px;
@@ -266,4 +315,14 @@ body { min-width: 320px; min-height: 100dvh; }
   }
 
   .reader-status { display: none; }
+  .reader-toolbar { max-width: 72vw; }
+  .reader-tool-button { min-width: 34px; min-height: 34px; padding: 0 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+  }
 }

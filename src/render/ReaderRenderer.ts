@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BookRenderer } from '../book/BookRenderer';
+import { BookRenderer, type PageTurnDirection } from '../book/BookRenderer';
 import type { BookPageSource } from '../book/PageTextureCache';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
 
@@ -10,6 +10,8 @@ export class ReaderRenderer {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
   private readonly book = new BookRenderer();
+  private readonly hemisphere = new THREE.HemisphereLight(0xfff4dc, 0x6e5b4a, 1.55);
+  private readonly keyLight = new THREE.DirectionalLight(0xffe1b0, 1.75);
   private width = 1;
   private height = 1;
   private zoom = 0.55;
@@ -27,11 +29,8 @@ export class ReaderRenderer {
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.shadowMap.enabled = false;
 
-    const hemisphere = new THREE.HemisphereLight(0xfff4dc, 0x6e5b4a, 1.55);
-    const keyLight = new THREE.DirectionalLight(0xffe1b0, 1.75);
-    keyLight.position.set(3.8, 4.2, 6.5);
-
-    this.scene.add(hemisphere, keyLight, this.book.root);
+    this.keyLight.position.set(3.8, 4.2, 6.5);
+    this.scene.add(this.hemisphere, this.keyLight, this.book.root);
     this.applyCameraPose();
   }
 
@@ -41,8 +40,21 @@ export class ReaderRenderer {
     this.book.setPageChangeListener(listener);
   }
 
+  public setTurnCompleteListener(listener: ((direction: PageTurnDirection) => void) | null): void {
+    this.book.setTurnCompleteListener(listener);
+  }
+
   public setPublication(source: BookPageSource, initialPageIndex = 0): void {
     this.book.setPageSource(source, initialPageIndex);
+  }
+
+  public setReducedMotion(enabled: boolean): void {
+    this.book.setReducedMotion(enabled);
+  }
+
+  public setFocusMode(enabled: boolean): void {
+    this.hemisphere.intensity = enabled ? 1.18 : 1.55;
+    this.keyLight.intensity = enabled ? 1.9 : 1.75;
   }
 
   public setQuality(profile: QualityProfile): void {

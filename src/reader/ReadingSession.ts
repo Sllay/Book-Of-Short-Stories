@@ -15,12 +15,24 @@ export interface ReadingSessionState {
   readonly message: string;
 }
 
+export interface ReadingProgressSnapshot {
+  readonly bookId: string;
+  readonly anchor: LogicalAnchor;
+  readonly typography: TypographySettings;
+}
+
+export interface RestoreReadingState {
+  readonly anchor?: LogicalAnchor | null;
+  readonly typography?: TypographySettings | null;
+}
+
 export class ReadingSession {
   private readonly paginator = new PaginationEngine();
   private documentModel: BookDocument | null = null;
   private pageMap: PageMap | null = null;
   private typographyState: TypographySettings = { ...DEFAULT_TYPOGRAPHY };
   private stateListener: ((state: ReadingSessionState) => void) | null = null;
+  private progressListener: ((snapshot: ReadingProgressSnapshot) => void) | null = null;
   private currentLeftPage = 0;
   private pageCount = 0;
   private generation = 0;
@@ -31,36 +43,57 @@ export class ReadingSession {
     this.renderer.setPageChangeListener((pageIndex) => {
       this.currentLeftPage = pageIndex;
       this.emitState();
+      this.emitProgress();
     });
   }
 
   public get typography(): TypographySettings { return this.typographyState; }
+  public get currentBookId(): string | null { return this.documentModel?.id ?? null; }
+
+  public get currentAnchor(): LogicalAnchor | null {
+    if (!this.pageMap || !this.documentModel) return null;
+    return this.pageMap.getPageStart(this.currentLeftPage);
+  }
 
   public setStateListener(listener: ((state: ReadingSessionState) => void) | null): void {
     this.stateListener = listener;
     this.emitState();
   }
 
-  public async importTxtFile(file: File): Promise<void> {
+  public setProgressListener(listener: ((snapshot: ReadingProgressSnapshot) => void) | null): void {
+    this.progressListener = listener;
+    this.emitProgress();
+  }
+
+  public async importTxtFile(file: File, restore: RestoreReadingState = {}): Promise<BookDocument> {
     if (!file.name.toLowerCase().endsWith('.txt') && file.type !== 'text/plain') {
-      throw new Error('A V1.3 aceita arquivos TXT nesta etapa.');
+      throw new Error('A V1.4 aceita TXT como formato de leitura nesta etapa.');
     }
 
     this.setBusy(true, 'Lendo TXT…');
     try {
       const text = await file.text();
-      const documentModel = importTxt(file.name, text);
-      await this.loadDocument(documentModel);
+      return await this.openTxtSource(file.name, text, restore);
     } catch (error: unknown) {
-      // If parsing fails before loadDocument takes ownership, never leave the controls
-      // permanently disabled. The previous publication remains available.
       if (this.busy) this.setBusy(false, 'Falha ao abrir TXT');
       throw error;
     }
   }
 
-  public async loadDocument(documentModel: BookDocument, anchor: LogicalAnchor | null = null): Promise<void> {
+  public async openTxtSource(sourceName: string, sourceText: string, restore: RestoreReadingState = {}): Promise<BookDocument> {
+    const documentModel = importTxt(sourceName, sourceText);
+    await this.loadDocument(documentModel, restore.anchor ?? null, restore.typography ?? null);
+    return documentModel;
+  }
+
+  public async loadDocument(
+    documentModel: BookDocument,
+    anchor: LogicalAnchor | null = null,
+    typography: TypographySettings | null = null
+  ): Promise<void> {
     const generation = ++this.generation;
+    const previousTypography = this.typographyState;
+    if (typography) this.typographyState = { ...typography };
     const settings = this.typographyState;
     this.setBusy(true, 'Paginando livro…');
 
@@ -73,8 +106,6 @@ export class ReadingSession {
       const targetLeftPage = Math.floor(targetPage / 2) * 2;
       const cache = new PageTextureCache(result.pages, settings);
 
-      // Commit the new session only after pagination has succeeded. This keeps the
-      // currently readable book intact if a malformed or extreme import fails.
       this.documentModel = documentModel;
       this.pageMap = result.pageMap;
       this.pageCount = result.pages.length;
@@ -83,8 +114,12 @@ export class ReadingSession {
       cache.warmAround(this.currentLeftPage);
 
       this.setBusy(false, 'Pronto');
+      this.emitProgress();
     } catch (error: unknown) {
-      if (generation === this.generation) this.setBusy(false, 'Falha ao paginar');
+      if (generation === this.generation) {
+        if (typography) this.typographyState = previousTypography;
+        this.setBusy(false, 'Falha ao paginar');
+      }
       throw error;
     }
   }
@@ -93,14 +128,12 @@ export class ReadingSession {
     if (!this.documentModel) return;
 
     const documentModel = this.documentModel;
-    const anchor = this.pageMap?.getPageStart(this.currentLeftPage) ?? firstAnchor(documentModel);
+    const anchor = this.currentAnchor ?? firstAnchor(documentModel);
     const previousSettings = this.typographyState;
     const nextSettings: TypographySettings = { ...previousSettings, ...patch };
     this.typographyState = nextSettings;
 
     try {
-      // Do not discard a later slider change just because an earlier pagination pass
-      // is still running. generation makes stale results harmless and the last change wins.
       await this.loadDocument(documentModel, anchor);
     } catch (error: unknown) {
       if (this.typographyState === nextSettings) this.typographyState = previousSettings;
@@ -108,10 +141,18 @@ export class ReadingSession {
     }
   }
 
+  public snapshotProgress(): ReadingProgressSnapshot | null {
+    const bookId = this.currentBookId;
+    const anchor = this.currentAnchor;
+    if (!bookId || !anchor) return null;
+    return { bookId, anchor, typography: { ...this.typographyState } };
+  }
+
   public dispose(): void {
     this.generation += 1;
     this.renderer.setPageChangeListener(null);
     this.stateListener = null;
+    this.progressListener = null;
   }
 
   private setBusy(busy: boolean, message: string): void {
@@ -128,5 +169,10 @@ export class ReadingSession {
       busy: this.busy,
       message: this.message
     });
+  }
+
+  private emitProgress(): void {
+    const snapshot = this.snapshotProgress();
+    if (snapshot) this.progressListener?.(snapshot);
   }
 }

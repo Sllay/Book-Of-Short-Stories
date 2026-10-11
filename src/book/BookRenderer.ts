@@ -7,7 +7,7 @@ const PAGE_WIDTH = 2.3;
 const PAGE_HEIGHT = 2.95;
 const DRAG_DISTANCE_NDC = 1.05;
 
-type TurnDirection = 'forward' | 'backward';
+export type PageTurnDirection = 'forward' | 'backward';
 
 export class BookRenderer {
   public readonly root = new THREE.Group();
@@ -33,7 +33,7 @@ export class BookRenderer {
   private pointerWasDown = false;
   private dragging = false;
   private animating = false;
-  private direction: TurnDirection = 'forward';
+  private direction: PageTurnDirection = 'forward';
   private dragStartX = 0;
   private dragStartY = 0;
   private dragStartProgress = 0;
@@ -41,7 +41,9 @@ export class BookRenderer {
   private animationTarget = 0;
   private animationElapsedMs = 0;
   private animationDurationMs = 280;
+  private reducedMotion = false;
   private pageChangeListener: ((leftPageIndex: number) => void) | null = null;
+  private turnCompleteListener: ((direction: PageTurnDirection) => void) | null = null;
 
   public constructor() {
     this.root.rotation.x = -0.08;
@@ -96,6 +98,14 @@ export class BookRenderer {
 
   public setPageChangeListener(listener: ((leftPageIndex: number) => void) | null): void {
     this.pageChangeListener = listener;
+  }
+
+  public setTurnCompleteListener(listener: ((direction: PageTurnDirection) => void) | null): void {
+    this.turnCompleteListener = listener;
+  }
+
+  public setReducedMotion(enabled: boolean): void {
+    this.reducedMotion = enabled;
   }
 
   public setPageSource(source: BookPageSource, initialPageIndex = 0): void {
@@ -153,6 +163,8 @@ export class BookRenderer {
   public dispose(): void {
     this.pageSource?.dispose();
     this.pageSource = null;
+    this.pageChangeListener = null;
+    this.turnCompleteListener = null;
     this.turningSheet.dispose();
     this.fallbackTexture.dispose();
     for (const geometry of this.staticGeometries) geometry.dispose();
@@ -190,7 +202,7 @@ export class BookRenderer {
     this.dragStartY = pointer.normalizedY;
     this.dragStartProgress = this.progress;
     this.twist = 0;
-    this.dragAmount = 0.05;
+    this.dragAmount = this.reducedMotion ? 0 : 0.05;
     this.applySheetState();
   }
 
@@ -199,8 +211,10 @@ export class BookRenderer {
     this.progress = THREE.MathUtils.clamp(this.dragStartProgress + delta, 0, 1);
 
     const verticalDelta = pointer.normalizedY - this.dragStartY;
-    this.twist = THREE.MathUtils.clamp(verticalDelta * 1.65, -1, 1);
-    this.dragAmount = THREE.MathUtils.clamp(Math.abs(delta) * 2.2 + Math.abs(verticalDelta) * 0.55, 0, 1);
+    this.twist = this.reducedMotion ? 0 : THREE.MathUtils.clamp(verticalDelta * 1.65, -1, 1);
+    this.dragAmount = this.reducedMotion
+      ? 0
+      : THREE.MathUtils.clamp(Math.abs(delta) * 2.2 + Math.abs(verticalDelta) * 0.55, 0, 1);
     this.applySheetState();
   }
 
@@ -211,12 +225,13 @@ export class BookRenderer {
     this.animationTarget = this.progress >= 0.5 ? 1 : 0;
     this.animationElapsedMs = 0;
     const remaining = Math.abs(this.animationTarget - this.animationStart);
-    this.animationDurationMs = 180 + remaining * 260;
+    this.animationDurationMs = this.reducedMotion ? 90 + remaining * 70 : 180 + remaining * 260;
   }
 
   private finishAnimation(): void {
-    const completedForward = this.direction === 'forward' && this.animationTarget === 1;
-    const completedBackward = this.direction === 'backward' && this.animationTarget === 0;
+    const completedDirection = this.direction;
+    const completedForward = completedDirection === 'forward' && this.animationTarget === 1;
+    const completedBackward = completedDirection === 'backward' && this.animationTarget === 0;
 
     if (completedForward) this.spreadLeftIndex = Math.min(this.spreadLeftIndex + 2, Math.max(0, this.pageCount - 1));
     if (completedBackward) this.spreadLeftIndex = Math.max(0, this.spreadLeftIndex - 2);
@@ -230,7 +245,10 @@ export class BookRenderer {
     this.applySheetState();
     this.pageSource?.warmAround(this.spreadLeftIndex);
 
-    if (completedForward || completedBackward) this.pageChangeListener?.(this.spreadLeftIndex);
+    if (completedForward || completedBackward) {
+      this.pageChangeListener?.(this.spreadLeftIndex);
+      this.turnCompleteListener?.(completedDirection);
+    }
   }
 
   private configureForwardVisual(): void {

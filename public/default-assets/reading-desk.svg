@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2018"/>
+      <stop offset="1" stop-color="#17120e"/>
+    </linearGradient>
+    <linearGradient id="desk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3a261c"/>
+      <stop offset="0.5" stop-color="#5a3928"/>
+      <stop offset="1" stop-color="#342219"/>
+    </linearGradient>
+    <radialGradient id="lamp" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#d7a66d" stop-opacity="0.26"/>
+      <stop offset="0.48" stop-color="#b67644" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6b7682" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#313b46" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#wall)"/>
+  <rect x="105" y="105" width="355" height="330" rx="18" fill="#0f1113" opacity="0.5"/>
+  <rect x="125" y="125" width="315" height="290" rx="12" fill="url(#window)"/>
+  <path d="M282 125v290M125 270h315" stroke="#211c18" stroke-width="14" opacity="0.72"/>
+  <rect x="1120" y="140" width="260" height="360" rx="16" fill="#17110d" opacity="0.46"/>
+  <g opacity="0.33" fill="#6b4631">
+    <rect x="1150" y="185" width="200" height="24" rx="5"/>
+    <rect x="1150" y="246" width="200" height="20" rx="5"/>
+    <rect x="1150" y="304" width="200" height="22" rx="5"/>
+    <rect x="1150" y="365" width="200" height="21" rx="5"/>
+    <rect x="1150" y="425" width="200" height="24" rx="5"/>
+  </g>
+  <rect y="610" width="1600" height="290" fill="url(#desk)"/>
+  <rect y="606" width="1600" height="10" fill="#7b4f36" opacity="0.32"/>
+  <ellipse cx="800" cy="650" rx="560" ry="260" fill="url(#lamp)"/>
+  <ellipse cx="800" cy="755" rx="440" ry="65" fill="#090706" opacity="0.20"/>
+  <circle cx="1390" cy="575" r="10" fill="#e8b77f" opacity="0.62"/>
+  <ellipse cx="1390" cy="575" rx="155" ry="145" fill="url(#lamp)" opacity="0.72"/>
+</svg>
