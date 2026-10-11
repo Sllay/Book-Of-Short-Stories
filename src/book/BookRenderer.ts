@@ -192,8 +192,11 @@ export class BookRenderer {
     this.dragAmount = THREE.MathUtils.lerp(this.dragAmount, 0, Math.min(1, rawT * 0.28 + 0.08));
     this.applySheetState();
 
-    if (rawT >= 1) this.finishAnimation();
-    return this.turnState !== 'idle';
+    if (rawT >= 1) {
+      this.finishAnimation();
+      return false;
+    }
+    return true;
   }
 
   public cancelInteraction(): void {
