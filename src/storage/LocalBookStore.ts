@@ -17,25 +17,6 @@ interface StoredSettingRecord {
   readonly value: unknown;
 }
 
-interface OpfsWritable {
-  write(data: Blob): Promise<void>;
-  close(): Promise<void>;
-}
-
-interface OpfsFileHandle {
-  createWritable(): Promise<OpfsWritable>;
-  getFile(): Promise<File>;
-}
-
-interface OpfsDirectoryHandle {
-  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<OpfsDirectoryHandle>;
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<OpfsFileHandle>;
-}
-
-interface StorageManagerWithOpfs extends StorageManager {
-  getDirectory?: () => Promise<OpfsDirectoryHandle>;
-}
-
 export interface StoredBookRecord {
   readonly id: string;
   readonly title: string;
@@ -190,8 +171,8 @@ export class LocalBookStore {
         const opfsFile = await this.readSourceFromOpfs(book.id);
         if (opfsFile) return opfsFile;
       } catch {
-        // A browser may lose OPFS support after a migration. Fall back to IDB if a
-        // previous copy happens to be available instead of failing the whole reader.
+        // Browser migrations can change OPFS availability. If that happens, try the
+        // IndexedDB fallback instead of crashing the whole reading session.
       }
     }
 
@@ -226,10 +207,11 @@ export class LocalBookStore {
     return fileHandle.getFile();
   }
 
-  private async getOpfsRoot(): Promise<OpfsDirectoryHandle | null> {
-    const storage = navigator.storage as StorageManagerWithOpfs | undefined;
-    if (!storage?.getDirectory) return null;
-    return storage.getDirectory();
+  private async getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
+    const storage = navigator.storage;
+    const getDirectory = Reflect.get(storage, 'getDirectory');
+    if (typeof getDirectory !== 'function') return null;
+    return (getDirectory as () => Promise<FileSystemDirectoryHandle>).call(storage);
   }
 
   private opfsFileName(bookId: string): string {
@@ -244,8 +226,7 @@ export class LocalBookStore {
     try {
       if (navigator.storage?.persist) await navigator.storage.persist();
     } catch {
-      // Persistence is an optimization. IndexedDB/OPFS still work when the browser
-      // refuses the persistent-storage hint.
+      // Persistence is a best-effort hint. IndexedDB/OPFS still work when denied.
     }
   }
 
