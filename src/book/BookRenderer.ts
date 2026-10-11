@@ -147,6 +147,13 @@ export class BookRenderer {
   }
 
   public handlePointer(pointer: PointerSnapshot, camera: THREE.Camera): boolean {
+    if (pointer.cancelled) {
+      if (this.pointerWasDown && this.turnState === 'dragging' && pointer.id === this.gesturePointerId) this.cancelDrag();
+      this.pointerWasDown = false;
+      if (this.turnState !== 'dragging') this.gesturePointerId = null;
+      return this.turnState !== 'idle';
+    }
+
     if (pointer.isDown && !this.pointerWasDown) {
       if (this.turnState === 'idle') this.beginDrag(pointer, camera);
     } else if (pointer.isDown && this.turnState === 'dragging' && pointer.id === this.gesturePointerId) {
@@ -289,6 +296,16 @@ export class BookRenderer {
     const projectedCommit = completion >= 0.18 && projectedCompletion >= TURN_COMMIT_PROGRESS;
     const completeTurn = completion >= TURN_COMMIT_PROGRESS || fastFlick || projectedCommit;
 
+    this.beginSettle(completeTurn, forwardVelocity);
+  }
+
+  private cancelDrag(): void {
+    if (this.turnState !== 'dragging') return;
+    this.completionVelocity = 0;
+    this.beginSettle(false, 0);
+  }
+
+  private beginSettle(completeTurn: boolean, forwardVelocity: number): void {
     this.turnState = 'settling';
     this.settlingGestureSerial = this.gestureSerial;
     this.animationStart = this.progress;
