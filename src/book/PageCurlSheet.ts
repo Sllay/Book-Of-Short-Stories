@@ -6,8 +6,10 @@ export class PageCurlSheet {
     uFrontMap: { value: THREE.Texture };
     uBackMap: { value: THREE.Texture };
     uProgress: { value: number };
+    uGrabY: { value: number };
     uTwist: { value: number };
     uWidth: { value: number };
+    uHeight: { value: number };
   };
 
   public constructor(width: number, height: number, front: THREE.Texture, back: THREE.Texture) {
@@ -18,8 +20,10 @@ export class PageCurlSheet {
       uFrontMap: { value: front },
       uBackMap: { value: back },
       uProgress: { value: 0 },
+      uGrabY: { value: 0.5 },
       uTwist: { value: 0 },
-      uWidth: { value: width }
+      uWidth: { value: width },
+      uHeight: { value: height }
     };
 
     const material = new THREE.ShaderMaterial({
@@ -28,46 +32,78 @@ export class PageCurlSheet {
       transparent: false,
       vertexShader: `
         uniform float uProgress;
+        uniform float uGrabY;
         uniform float uTwist;
         uniform float uWidth;
+        uniform float uHeight;
+
         varying vec2 vUv;
-        varying float vFold;
+        varying float vCurve;
+        varying float vTurn;
+
+        const float PI = 3.141592653589793;
 
         void main() {
           vUv = uv;
           vec3 p = position;
+
           float pageU = clamp(p.x / uWidth, 0.0, 1.0);
-          float envelope = sin(uProgress * 3.14159265);
-          float curl = (pageU - 0.5) * 0.95 * envelope;
-          float angle = uProgress * 3.14159265 + curl;
-          angle += uTwist * pageU * 0.20 * envelope;
+          float pageV = clamp((p.y / uHeight) + 0.5, 0.0, 1.0);
 
-          float distanceFromSpine = p.x;
-          float bentX = cos(angle) * distanceFromSpine;
-          float bentZ = -sin(angle) * distanceFromSpine;
-          bentZ += sin(pageU * 3.14159265) * 0.18 * envelope;
+          // The row nearest the grabbed point leads the turn slightly. This breaks the
+          // unnatural full-height vertical fold and gives the page a diagonal response.
+          float baseArc = sin(uProgress * PI);
+          float rowDistance = abs(pageV - uGrabY);
+          float localProgress = clamp(uProgress - rowDistance * 0.11 * baseArc, 0.0, 1.0);
+          float arc = sin(localProgress * PI);
 
-          p.x = bentX;
-          p.z = bentZ;
-          p.y += uTwist * (pageU - 0.5) * 0.10 * envelope;
+          // Outer edge travels from +width to -width. The middle control point lifts
+          // the sheet into an arch, so the page keeps visible area around mid-turn
+          // instead of collapsing into a thin "loading bar" at the spine.
+          float edgeX = mix(uWidth, -uWidth, localProgress);
+          float controlX = edgeX * 0.5 + uWidth * 0.54 * arc;
+          float controlZ = uWidth * 0.78 * arc;
 
-          vFold = envelope * (0.35 + 0.65 * sin(pageU * 3.14159265));
+          float t = pageU;
+          float invT = 1.0 - t;
+          float curveX = 2.0 * invT * t * controlX + t * t * edgeX;
+          float curveZ = 2.0 * invT * t * controlZ;
+
+          p.x = curveX;
+          p.z += curveZ;
+
+          // Vertical finger movement introduces a small torsion, strongest toward the
+          // free edge. The spine stays stable.
+          p.y += uTwist * 0.16 * t * t * arc;
+          p.z += uTwist * (pageV - uGrabY) * 0.10 * t * arc;
+
+          vCurve = arc * sin(pageU * PI);
+          vTurn = localProgress;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
       `,
       fragmentShader: `
         uniform sampler2D uFrontMap;
         uniform sampler2D uBackMap;
-        uniform float uProgress;
+
         varying vec2 vUv;
-        varying float vFold;
+        varying float vCurve;
+        varying float vTurn;
 
         void main() {
           vec2 sampleUv = gl_FrontFacing ? vUv : vec2(1.0 - vUv.x, vUv.y);
-          vec4 paper = gl_FrontFacing ? texture2D(uFrontMap, sampleUv) : texture2D(uBackMap, sampleUv);
-          float foldShade = 1.0 - vFold * 0.22;
-          float edgeShade = 0.96 + 0.04 * sin(sampleUv.x * 3.14159265);
-          gl_FragColor = vec4(paper.rgb * foldShade * edgeShade, paper.a);
+          vec4 paper = gl_FrontFacing
+            ? texture2D(uFrontMap, sampleUv)
+            : texture2D(uBackMap, sampleUv);
+
+          // Cheap paper lighting: enough to describe the arch without making the
+          // sheet look metallic or plastic.
+          float trough = 1.0 - vCurve * 0.16;
+          float softHighlight = 1.0 + vCurve * 0.055 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
+          float edgeTone = 0.985 + 0.015 * sin(sampleUv.x * 3.14159265);
+          float turnTone = mix(1.0, 0.97, smoothstep(0.35, 0.75, vTurn) * vCurve);
+
+          gl_FragColor = vec4(paper.rgb * trough * softHighlight * edgeTone * turnTone, paper.a);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
@@ -80,6 +116,10 @@ export class PageCurlSheet {
 
   public setProgress(progress: number): void {
     this.uniforms.uProgress.value = THREE.MathUtils.clamp(progress, 0, 1);
+  }
+
+  public setGrabY(grabY: number): void {
+    this.uniforms.uGrabY.value = THREE.MathUtils.clamp(grabY, 0, 1);
   }
 
   public setTwist(twist: number): void {
