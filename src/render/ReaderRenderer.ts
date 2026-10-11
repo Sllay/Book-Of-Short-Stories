@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BookRenderer } from '../book/BookRenderer';
+import type { BookPageSource } from '../book/PageTextureCache';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
 
 const MAX_FRAMEBUFFER_PIXELS = 4_200_000;
@@ -32,6 +33,16 @@ export class ReaderRenderer {
 
     this.scene.add(hemisphere, keyLight, this.book.root);
     this.applyCameraPose();
+  }
+
+  public get currentPageIndex(): number { return this.book.currentLeftPageIndex; }
+
+  public setPageChangeListener(listener: ((leftPageIndex: number) => void) | null): void {
+    this.book.setPageChangeListener(listener);
+  }
+
+  public setPublication(source: BookPageSource, initialPageIndex = 0): void {
+    this.book.setPageSource(source, initialPageIndex);
   }
 
   public setQuality(profile: QualityProfile): void {
@@ -80,10 +91,6 @@ export class ReaderRenderer {
   private computePixelRatio(): number {
     const devicePixelRatio = Math.max(1, window.devicePixelRatio || 1);
     const requested = Math.min(devicePixelRatio, this.quality.maxDevicePixelRatio) * this.quality.renderScale;
-
-    // Keep phones at their full physical resolution whenever possible. Very large
-    // tablet/desktop viewports are capped by total framebuffer pixels instead of a
-    // blunt DPR limit, so a 4K monitor cannot accidentally allocate a gigantic canvas.
     const cssPixels = Math.max(1, this.width * this.height);
     const budgetRatio = Math.sqrt(MAX_FRAMEBUFFER_PIXELS / cssPixels);
     return THREE.MathUtils.clamp(Math.min(requested, budgetRatio), 1, 2.35);

@@ -69,15 +69,12 @@ export class PageCurlSheet {
           float grabDistance = distance(pageUv, grabUv);
           float grabInfluence = exp(-grabDistance * 4.5);
 
-          // The touched region leads the page while rows farther away lag behind.
-          // This makes top-corner, middle-edge and bottom-corner drags visibly different.
           float touchLead = grabInfluence * 0.13 * baseArc;
           float rowLag = rowDistance * mix(0.20, 0.10, uGrabX) * baseArc;
           float spineLag = (1.0 - pageU) * 0.025 * baseArc;
           float localProgress = clamp(uProgress + touchLead - rowLag - spineLag, 0.0, 1.0);
           float arc = sin(localProgress * PI);
 
-          // Quadratic arch. The free edge crosses the book while the centre stays lifted.
           float edgeX = mix(uWidth, -uWidth, localProgress);
           float controlX = edgeX * 0.5 + uWidth * (0.50 + 0.08 * grabInfluence) * arc;
           float controlZ = uWidth * (0.72 + 0.12 * grabInfluence) * arc;
@@ -90,15 +87,11 @@ export class PageCurlSheet {
           p.x = curveX;
           p.z += curveZ;
 
-          // Initial grab height influences the whole free edge slightly; subsequent
-          // finger movement contributes torsion through uTwist.
           float grabBias = (uGrabY - 0.5) * 2.0;
           p.y += grabBias * 0.055 * t * t * arc;
           p.y += uTwist * 0.17 * t * t * arc;
           p.z += uTwist * (pageV - uGrabY) * 0.13 * t * arc;
 
-          // Subtle procedural paper tension. It exists only while the user is actually
-          // pulling the sheet and is concentrated near the grab and bend regions.
           float dragEnvelope = uDragAmount * arc * smoothstep(0.06, 0.52, pageU);
           float waveA = sin(pageU * 35.0 + pageV * 21.0 + uProgress * 4.0);
           float waveB = sin(pageU * 17.0 - pageV * 31.0 - uProgress * 3.0);
@@ -140,8 +133,6 @@ export class PageCurlSheet {
           float turnTone = mix(1.0, 0.968, smoothstep(0.35, 0.75, vTurn) * vCurve);
           float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.022 * (0.35 + 0.65 * vGrabInfluence);
 
-          // Force a fully opaque sheet. No alpha from the source texture is allowed
-          // to reveal the page underneath while the paper is turning.
           gl_FragColor = vec4(paper * trough * softHighlight * edgeTone * turnTone * wrinkleShade, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -151,6 +142,11 @@ export class PageCurlSheet {
 
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.renderOrder = 5;
+  }
+
+  public setTextures(front: THREE.Texture, back: THREE.Texture): void {
+    this.uniforms.uFrontMap.value = front;
+    this.uniforms.uBackMap.value = back;
   }
 
   public setProgress(progress: number): void {
