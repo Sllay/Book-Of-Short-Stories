@@ -21,10 +21,12 @@ export class BookRenderer {
 
   private progress = 0;
   private twist = 0;
+  private grabY = 0.5;
   private pointerWasDown = false;
   private dragging = false;
   private animating = false;
   private dragStartX = 0;
+  private dragStartY = 0;
   private dragStartProgress = 0;
   private animationStart = 0;
   private animationTarget = 0;
@@ -125,21 +127,26 @@ export class BookRenderer {
     this.raycaster.setFromCamera(this.pointerNdc, camera);
 
     const target = this.progress < 0.5 ? this.hitRight : this.hitLeft;
-    const hit = this.raycaster.intersectObject(target, false).length > 0;
+    const intersections = this.raycaster.intersectObject(target, false);
+    const hit = intersections[0];
     if (!hit) return;
 
     this.animating = false;
     this.dragging = true;
     this.dragStartX = pointer.normalizedX;
+    this.dragStartY = pointer.normalizedY;
     this.dragStartProgress = this.progress;
-    this.twist = THREE.MathUtils.clamp(pointer.normalizedY * 0.7, -0.7, 0.7);
+    this.grabY = hit.uv?.y ?? 0.5;
+    this.twist = 0;
     this.applySheetState();
   }
 
   private updateDrag(pointer: PointerSnapshot): void {
     const delta = (this.dragStartX - pointer.normalizedX) / DRAG_DISTANCE_NDC;
     this.progress = THREE.MathUtils.clamp(this.dragStartProgress + delta, 0, 1);
-    this.twist = THREE.MathUtils.clamp(pointer.normalizedY * 0.7, -0.7, 0.7);
+
+    const verticalDelta = pointer.normalizedY - this.dragStartY;
+    this.twist = THREE.MathUtils.clamp(verticalDelta * 1.65, -1, 1);
     this.applySheetState();
   }
 
@@ -155,6 +162,7 @@ export class BookRenderer {
 
   private applySheetState(): void {
     this.turningSheet.setProgress(this.progress);
+    this.turningSheet.setGrabY(this.grabY);
     this.turningSheet.setTwist(this.twist);
   }
 
