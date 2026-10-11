@@ -1,10 +1,10 @@
 import type { QualityLevel, QualityProfile } from '../core/types';
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
-  high: { level: 'high', renderScale: 1, maxDevicePixelRatio: 1.5, ambientFps: 30 },
-  balanced: { level: 'balanced', renderScale: 0.86, maxDevicePixelRatio: 1.25, ambientFps: 24 },
-  low: { level: 'low', renderScale: 0.72, maxDevicePixelRatio: 1, ambientFps: 15 },
-  safe: { level: 'safe', renderScale: 0.58, maxDevicePixelRatio: 1, ambientFps: 10 }
+  high: { level: 'high', renderScale: 1, maxDevicePixelRatio: 2, ambientFps: 30 },
+  balanced: { level: 'balanced', renderScale: 1, maxDevicePixelRatio: 1.5, ambientFps: 24 },
+  low: { level: 'low', renderScale: 0.9, maxDevicePixelRatio: 1.25, ambientFps: 15 },
+  safe: { level: 'safe', renderScale: 0.75, maxDevicePixelRatio: 1, ambientFps: 10 }
 };
 const ORDER: readonly QualityLevel[] = ['safe', 'low', 'balanced', 'high'];
 
