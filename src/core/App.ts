@@ -110,7 +110,8 @@ export class App {
     });
     this.session.setProgressListener(this.handleProgress);
 
-    this.renderer.setTurnCompleteListener((direction) => this.audio.playPageTurn(direction));
+    this.renderer.setTurnMotionListener((motion) => this.audio.updatePageDrag(motion));
+    this.renderer.setTurnCompleteListener((direction) => this.audio.playPageSettle(direction));
     this.renderer.setReducedMotion(this.reducedMotionQuery.matches);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -142,6 +143,7 @@ export class App {
     this.zoomControl.destroy();
     this.controls.destroy();
     this.session.dispose();
+    this.renderer.setTurnMotionListener(null);
     this.renderer.setTurnCompleteListener(null);
     this.renderer.dispose();
     this.audio.dispose();
