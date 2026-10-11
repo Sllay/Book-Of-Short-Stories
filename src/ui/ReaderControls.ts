@@ -87,7 +87,7 @@ export class ReaderControls {
       option.selected = value === settings.fontFamily;
       font.append(option);
     }
-    font.addEventListener('change', () => void this.callbacks.onTypography({ fontFamily: font.value }));
+    font.addEventListener('change', () => this.applyTypography({ fontFamily: font.value }));
 
     const fontSize = this.createRange(settings.fontSize, 20, 38, 1, (value) => ({ fontSize: value }));
     const lineHeight = this.createRange(settings.lineHeight, 1.2, 1.8, 0.05, (value) => ({ lineHeight: value }));
@@ -108,7 +108,7 @@ export class ReaderControls {
       option.selected = value === settings.paperTone;
       paper.append(option);
     }
-    paper.addEventListener('change', () => void this.callbacks.onTypography({ paperTone: paper.value }));
+    paper.addEventListener('change', () => this.applyTypography({ paperTone: paper.value }));
 
     this.panel.append(
       this.createField('Fonte', font),
@@ -137,7 +137,7 @@ export class ReaderControls {
       if (this.debounceTimer !== null) window.clearTimeout(this.debounceTimer);
       this.debounceTimer = window.setTimeout(() => {
         this.debounceTimer = null;
-        void this.callbacks.onTypography(createPatch(Number(input.value)));
+        this.applyTypography(createPatch(Number(input.value)));
       }, 220);
     });
     return input;
@@ -150,6 +150,13 @@ export class ReaderControls {
     caption.textContent = labelText;
     label.append(caption, control);
     return label;
+  }
+
+  private applyTypography(patch: Partial<TypographySettings>): void {
+    void this.callbacks.onTypography(patch).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Não foi possível repaginar o livro.';
+      this.showError(message);
+    });
   }
 
   private readonly openFilePicker = (): void => {
