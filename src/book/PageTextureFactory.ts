@@ -55,10 +55,14 @@ export function createDemoPageTexture(pageNumber: number, heading: string): THRE
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 16;
+
+  // Text-like page content benefits more from preserving the high-resolution base
+  // level than from aggressive mip smoothing at the modest viewing angles of a book.
+  // This keeps stationary pages noticeably sharper on 2x mobile displays.
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.generateMipmaps = true;
+  texture.generateMipmaps = false;
   texture.needsUpdate = true;
   return texture;
 }
