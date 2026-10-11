@@ -18,7 +18,6 @@ export class App {
   private readonly scheduler: RenderScheduler;
   private readonly debugHud: DebugHud;
   private readonly resizeObserver: ResizeObserver;
-  private lastFrameTimestamp = 0;
   private lastPointerX = 0;
   private lastPointerY = 0;
   private pointerIsDown = false;
@@ -49,7 +48,6 @@ export class App {
     this.debugHud = new DebugHud(this.shell);
 
     this.scheduler = new RenderScheduler(({ now, deltaMs }) => {
-      this.lastFrameTimestamp = now;
       const stillInteracting = this.renderer.update(deltaMs);
       this.renderer.render();
 
@@ -60,7 +58,6 @@ export class App {
       if (!stillInteracting && !this.pointerIsDown && this.scheduler.currentMode === 'interactive') {
         this.shell.classList.remove('is-interacting');
         this.scheduler.setMode('static');
-        this.lastFrameTimestamp = 0;
         this.metrics.reset();
       }
     });
@@ -108,7 +105,6 @@ export class App {
       this.scheduler.setMode('interactive');
     } else if (!pointer.isDown) {
       this.scheduler.setMode('static');
-      this.lastFrameTimestamp = 0;
       this.metrics.reset();
     }
 
@@ -122,7 +118,6 @@ export class App {
       this.shell.classList.remove('is-interacting');
       this.scheduler.setMode('hidden');
       this.metrics.reset();
-      this.lastFrameTimestamp = 0;
       return;
     }
 
