@@ -14,6 +14,11 @@ interface WrappedLine {
   readonly endOffset: number;
 }
 
+interface TextPiece {
+  readonly startOffset: number;
+  readonly endOffset: number;
+}
+
 export interface PaginationResult {
   readonly pages: readonly PaginatedPage[];
   readonly pageMap: PageMap;
@@ -38,6 +43,10 @@ export class PaginationEngine {
     const contentWidth = PAGE_LOGICAL_WIDTH - settings.marginX * 2;
     const bottomLimit = PAGE_LOGICAL_HEIGHT - settings.marginBottom;
     let processedBlocks = 0;
+
+    if (contentWidth <= 16 || bottomLimit <= settings.marginTop + 16) {
+      throw new Error('As margens atuais não deixam espaço suficiente para o texto.');
+    }
 
     const commitPage = (): void => {
       if (currentLines.length === 0) return;
@@ -69,6 +78,7 @@ export class PaginationEngine {
         this.context.font = `${fontWeight} ${fontSize}px ${settings.fontFamily}`;
         const wrapped = this.wrapBlock(block, contentWidth);
 
+        // Avoid leaving a heading stranded as the final line of a page when possible.
         if (isHeading && currentLines.length > 0 && currentY + lineHeightPx * Math.min(2, wrapped.length) > bottomLimit) {
           commitPage();
         }
@@ -94,6 +104,8 @@ export class PaginationEngine {
         currentY += spacingAfter;
         processedBlocks += 1;
 
+        // Yield periodically so large TXT files cannot monopolize the main thread for
+        // the complete pagination pass. Worker pagination remains a later optimization.
         if (processedBlocks % 12 === 0) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
@@ -103,10 +115,11 @@ export class PaginationEngine {
     commitPage();
 
     if (pages.length === 0) {
-      const fallbackBlock = documentModel.chapters[0]?.blocks[0];
-      if (!fallbackBlock) throw new Error('The document contains no readable text blocks.');
+      const fallbackChapter = documentModel.chapters[0];
+      const fallbackBlock = fallbackChapter?.blocks[0];
+      if (!fallbackChapter || !fallbackBlock) throw new Error('The document contains no readable text blocks.');
       const anchor: LogicalAnchor = {
-        chapterId: documentModel.chapters[0].id,
+        chapterId: fallbackChapter.id,
         blockId: fallbackBlock.id,
         offset: 0
       };
@@ -117,21 +130,19 @@ export class PaginationEngine {
   }
 
   private wrapBlock(block: BookTextBlock, maxWidth: number): WrappedLine[] {
-    const words = [...block.text.matchAll(/\S+/g)];
-    if (words.length === 0) return [{ text: '', startOffset: 0, endOffset: 0 }];
+    const pieces = this.createFittablePieces(block.text, maxWidth);
+    if (pieces.length === 0) return [{ text: '', startOffset: 0, endOffset: 0 }];
 
     const lines: WrappedLine[] = [];
-    let lineStart = words[0].index ?? 0;
-    let lineEnd = lineStart + words[0][0].length;
+    let lineStart = pieces[0].startOffset;
+    let lineEnd = pieces[0].endOffset;
 
-    for (let index = 1; index < words.length; index += 1) {
-      const word = words[index];
-      const wordStart = word.index ?? lineEnd;
-      const wordEnd = wordStart + word[0].length;
-      const candidate = block.text.slice(lineStart, wordEnd);
+    for (let index = 1; index < pieces.length; index += 1) {
+      const piece = pieces[index];
+      const candidate = block.text.slice(lineStart, piece.endOffset);
 
       if (this.context.measureText(candidate).width <= maxWidth) {
-        lineEnd = wordEnd;
+        lineEnd = piece.endOffset;
         continue;
       }
 
@@ -140,8 +151,8 @@ export class PaginationEngine {
         startOffset: lineStart,
         endOffset: lineEnd
       });
-      lineStart = wordStart;
-      lineEnd = wordEnd;
+      lineStart = piece.startOffset;
+      lineEnd = piece.endOffset;
     }
 
     lines.push({
@@ -151,5 +162,39 @@ export class PaginationEngine {
     });
 
     return lines;
+  }
+
+  private createFittablePieces(text: string, maxWidth: number): TextPiece[] {
+    const pieces: TextPiece[] = [];
+
+    for (const match of text.matchAll(/\S+/g)) {
+      const token = match[0];
+      const tokenStart = match.index ?? 0;
+      const tokenEnd = tokenStart + token.length;
+
+      if (this.context.measureText(token).width <= maxWidth) {
+        pieces.push({ startOffset: tokenStart, endOffset: tokenEnd });
+        continue;
+      }
+
+      // URLs, hashes and other unbroken tokens can be wider than the page. Split them
+      // only as much as necessary while keeping offsets anchored to the original text.
+      let segmentStart = tokenStart;
+      let segmentEnd = tokenStart;
+      for (const character of Array.from(token)) {
+        const nextEnd = segmentEnd + character.length;
+        const candidate = text.slice(segmentStart, nextEnd);
+
+        if (segmentEnd > segmentStart && this.context.measureText(candidate).width > maxWidth) {
+          pieces.push({ startOffset: segmentStart, endOffset: segmentEnd });
+          segmentStart = segmentEnd;
+        }
+        segmentEnd = nextEnd;
+      }
+
+      if (segmentEnd > segmentStart) pieces.push({ startOffset: segmentStart, endOffset: segmentEnd });
+    }
+
+    return pieces;
   }
 }
