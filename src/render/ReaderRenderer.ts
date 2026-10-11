@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BookRenderer, type PageTurnDirection } from '../book/BookRenderer';
+import { BookRenderer, type PageTurnDirection, type PageTurnMotion } from '../book/BookRenderer';
 import type { BookPageSource } from '../book/PageTextureCache';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
 
@@ -42,6 +42,10 @@ export class ReaderRenderer {
 
   public setTurnCompleteListener(listener: ((direction: PageTurnDirection) => void) | null): void {
     this.book.setTurnCompleteListener(listener);
+  }
+
+  public setTurnMotionListener(listener: ((motion: PageTurnMotion) => void) | null): void {
+    this.book.setTurnMotionListener(listener);
   }
 
   public setPublication(source: BookPageSource, initialPageIndex = 0): void {
