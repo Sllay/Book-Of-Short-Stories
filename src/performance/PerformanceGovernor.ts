@@ -1,13 +1,14 @@
 import type { QualityLevel, QualityProfile } from '../core/types';
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
-  // High is allowed to supersample a little on displays that can afford it.
-  high: { level: 'high', renderScale: 1.08, maxDevicePixelRatio: 2.25, ambientFps: 30 },
-  // Balanced is the reading baseline and now targets full native DPR on common
-  // 2x mobile displays instead of starting below the physical screen resolution.
-  balanced: { level: 'balanced', renderScale: 1, maxDevicePixelRatio: 2, ambientFps: 24 },
-  low: { level: 'low', renderScale: 0.9, maxDevicePixelRatio: 1.5, ambientFps: 15 },
-  safe: { level: 'safe', renderScale: 0.78, maxDevicePixelRatio: 1.25, ambientFps: 10 }
+  // Interactive page turns still run at the display cadence. These values only
+  // control lightweight ambience while the reader is otherwise stationary.
+  high: { level: 'high', renderScale: 1.08, maxDevicePixelRatio: 2.25, ambientFps: 24 },
+  // Balanced is the reading baseline and targets full native DPR on common 2x
+  // mobile displays while keeping candle/cloud ambience intentionally modest.
+  balanced: { level: 'balanced', renderScale: 1, maxDevicePixelRatio: 2, ambientFps: 15 },
+  low: { level: 'low', renderScale: 0.9, maxDevicePixelRatio: 1.5, ambientFps: 12 },
+  safe: { level: 'safe', renderScale: 0.78, maxDevicePixelRatio: 1.25, ambientFps: 8 }
 };
 
 const ORDER: readonly QualityLevel[] = ['safe', 'low', 'balanced', 'high'];
