@@ -11,6 +11,8 @@ interface ReaderControlsCallbacks {
 
 export class ReaderControls {
   private readonly root = document.createElement('div');
+  private readonly drawer = document.createElement('div');
+  private readonly drawerToggle = document.createElement('button');
   private readonly importButton = document.createElement('button');
   private readonly typeButton = document.createElement('button');
   private readonly bookmarkButton = document.createElement('button');
@@ -20,8 +22,10 @@ export class ReaderControls {
   private readonly panel = document.createElement('div');
   private readonly status = document.createElement('div');
   private debounceTimer: number | null = null;
+  private statusTimer: number | null = null;
   private focusEnabled = false;
   private audioEnabled = true;
+  private drawerOpen = false;
 
   public constructor(
     host: HTMLElement,
@@ -55,6 +59,13 @@ export class ReaderControls {
     this.audioButton.textContent = '🔊';
     this.audioButton.title = 'Som de página';
 
+    this.drawerToggle.type = 'button';
+    this.drawerToggle.className = 'reader-drawer-toggle';
+    this.drawerToggle.textContent = '›';
+    this.drawerToggle.title = 'Abrir controles';
+    this.drawerToggle.setAttribute('aria-label', 'Abrir controles do leitor');
+    this.drawerToggle.setAttribute('aria-expanded', 'false');
+
     this.fileInput.type = 'file';
     this.fileInput.accept = '.txt,text/plain';
     this.fileInput.hidden = true;
@@ -63,14 +74,18 @@ export class ReaderControls {
     toolbar.className = 'reader-toolbar';
     toolbar.append(this.importButton, this.typeButton, this.bookmarkButton, this.focusButton, this.audioButton);
 
+    this.drawer.className = 'reader-drawer';
+    this.drawer.append(toolbar, this.drawerToggle);
+
     this.panel.className = 'typography-panel';
     this.panel.hidden = true;
     this.buildTypographyPanel(settings);
 
     this.status.className = 'reader-status';
-    this.status.textContent = 'Preparando leitor…';
+    this.status.setAttribute('role', 'status');
+    this.status.setAttribute('aria-live', 'polite');
 
-    this.root.append(toolbar, this.panel, this.status, this.fileInput);
+    this.root.append(this.drawer, this.panel, this.status, this.fileInput);
     host.append(this.root);
 
     this.importButton.addEventListener('click', this.openFilePicker);
@@ -79,15 +94,21 @@ export class ReaderControls {
     this.bookmarkButton.addEventListener('click', this.toggleBookmark);
     this.focusButton.addEventListener('click', this.toggleFocusMode);
     this.audioButton.addEventListener('click', this.toggleAudio);
+    this.drawerToggle.addEventListener('click', this.toggleDrawer);
+
+    this.setDrawerOpen(false);
   }
 
   public setState(state: ReadingSessionState): void {
     this.importButton.disabled = state.busy;
     this.typeButton.disabled = state.busy;
     this.bookmarkButton.disabled = state.busy;
-    const pages = state.pageCount > 0 ? ` • pág. ${state.page}/${state.pageCount}` : '';
-    this.status.textContent = state.busy ? state.message : `${state.title}${pages}`;
-    this.status.classList.toggle('is-busy', state.busy);
+
+    if (state.busy) {
+      this.showStatus(state.message, 'busy', 0);
+    } else if (this.status.classList.contains('is-busy')) {
+      this.hideStatus();
+    }
   }
 
   public setBookmarked(bookmarked: boolean): void {
@@ -109,23 +130,23 @@ export class ReaderControls {
   }
 
   public showError(message: string): void {
-    this.status.textContent = message;
-    this.status.classList.add('is-error');
-    window.setTimeout(() => this.status.classList.remove('is-error'), 3200);
+    this.showStatus(message, 'error', 3400);
   }
 
   public showMessage(message: string): void {
-    this.status.textContent = message;
+    this.showStatus(message, 'message', 2300);
   }
 
   public destroy(): void {
     if (this.debounceTimer !== null) window.clearTimeout(this.debounceTimer);
+    if (this.statusTimer !== null) window.clearTimeout(this.statusTimer);
     this.importButton.removeEventListener('click', this.openFilePicker);
     this.fileInput.removeEventListener('change', this.handleFileSelected);
     this.typeButton.removeEventListener('click', this.toggleTypographyPanel);
     this.bookmarkButton.removeEventListener('click', this.toggleBookmark);
     this.focusButton.removeEventListener('click', this.toggleFocusMode);
     this.audioButton.removeEventListener('click', this.toggleAudio);
+    this.drawerToggle.removeEventListener('click', this.toggleDrawer);
     this.root.remove();
   }
 
@@ -211,6 +232,51 @@ export class ReaderControls {
     });
   }
 
+  private setDrawerOpen(open: boolean): void {
+    this.drawerOpen = open;
+    this.root.classList.toggle('is-open', open);
+    this.drawerToggle.textContent = open ? '‹' : '›';
+    this.drawerToggle.title = open ? 'Recolher controles' : 'Abrir controles';
+    this.drawerToggle.setAttribute('aria-label', open ? 'Recolher controles do leitor' : 'Abrir controles do leitor');
+    this.drawerToggle.setAttribute('aria-expanded', String(open));
+
+    if (!open) {
+      this.panel.hidden = true;
+      this.typeButton.classList.remove('is-active');
+    }
+  }
+
+  private showStatus(message: string, kind: 'busy' | 'error' | 'message', durationMs: number): void {
+    if (this.statusTimer !== null) {
+      window.clearTimeout(this.statusTimer);
+      this.statusTimer = null;
+    }
+
+    this.status.textContent = message;
+    this.status.classList.toggle('is-busy', kind === 'busy');
+    this.status.classList.toggle('is-error', kind === 'error');
+    this.status.classList.add('is-visible');
+
+    if (durationMs > 0) {
+      this.statusTimer = window.setTimeout(() => {
+        this.statusTimer = null;
+        this.hideStatus();
+      }, durationMs);
+    }
+  }
+
+  private hideStatus(): void {
+    if (this.statusTimer !== null) {
+      window.clearTimeout(this.statusTimer);
+      this.statusTimer = null;
+    }
+    this.status.classList.remove('is-visible', 'is-busy', 'is-error');
+  }
+
+  private readonly toggleDrawer = (): void => {
+    this.setDrawerOpen(!this.drawerOpen);
+  };
+
   private readonly openFilePicker = (): void => {
     this.fileInput.click();
   };
@@ -232,7 +298,10 @@ export class ReaderControls {
 
   private readonly toggleBookmark = (): void => {
     void this.callbacks.onToggleBookmark()
-      .then((bookmarked) => this.setBookmarked(bookmarked))
+      .then((bookmarked) => {
+        this.setBookmarked(bookmarked);
+        this.showMessage(bookmarked ? 'Bookmark salvo' : 'Bookmark removido');
+      })
       .catch((error: unknown) => {
         this.showError(error instanceof Error ? error.message : 'Não foi possível alterar o bookmark.');
       });
@@ -241,12 +310,14 @@ export class ReaderControls {
   private readonly toggleFocusMode = (): void => {
     const enabled = !this.focusEnabled;
     this.setFocusMode(enabled);
+    this.showMessage(enabled ? 'Focus Mode ligado' : 'Focus Mode desligado');
     void Promise.resolve(this.callbacks.onFocusMode(enabled)).catch(() => this.setFocusMode(!enabled));
   };
 
   private readonly toggleAudio = (): void => {
     const enabled = !this.audioEnabled;
     this.setAudioEnabled(enabled);
+    this.showMessage(enabled ? 'Som de página ligado' : 'Som de página desligado');
     void Promise.resolve(this.callbacks.onAudioEnabled(enabled)).catch(() => this.setAudioEnabled(!enabled));
   };
 }
