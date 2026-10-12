@@ -101,6 +101,25 @@ export class PageCurlSheet {
     this.uniforms.uDragAmount.value = THREE.MathUtils.clamp(amount, 0, 1);
   }
 
+  /**
+   * Kept temporarily as an API compatibility shim for the V1.4.2 renderer.
+   * Lighting is intentionally ignored: MeshStandardMaterial now receives the exact
+   * same scene lights as every stationary paper surface automatically.
+   */
+  public setLighting(
+    _ambientColor: THREE.Color,
+    _keyColor: THREE.Color,
+    _keyDirectionWorld: THREE.Vector3,
+    _ambientStrength: number,
+    _keyStrength: number
+  ): void {
+    void _ambientColor;
+    void _keyColor;
+    void _keyDirectionWorld;
+    void _ambientStrength;
+    void _keyStrength;
+  }
+
   public dispose(): void {
     this.frontGeometry.dispose();
     this.backGeometry.dispose();
