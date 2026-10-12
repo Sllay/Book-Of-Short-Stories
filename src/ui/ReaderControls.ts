@@ -29,6 +29,7 @@ export class ReaderControls {
   private audioEnabled = true;
   private pageTheme: PageTheme;
   private drawerOpen = false;
+  private fixedLayout = false;
 
   public constructor(
     host: HTMLElement,
@@ -40,8 +41,8 @@ export class ReaderControls {
 
     this.importButton.type = 'button';
     this.importButton.className = 'reader-tool-button';
-    this.importButton.textContent = '📖 TXT';
-    this.importButton.title = 'Abrir livro TXT';
+    this.importButton.textContent = '📖 TXT/PDF';
+    this.importButton.title = 'Abrir livro TXT ou PDF';
 
     this.typeButton.type = 'button';
     this.typeButton.className = 'reader-tool-button';
@@ -75,7 +76,7 @@ export class ReaderControls {
     this.drawerToggle.setAttribute('aria-expanded', 'false');
 
     this.fileInput.type = 'file';
-    this.fileInput.accept = '.txt,text/plain';
+    this.fileInput.accept = '.txt,.pdf,text/plain,application/pdf';
     this.fileInput.hidden = true;
 
     const toolbar = document.createElement('div');
@@ -109,10 +110,18 @@ export class ReaderControls {
   }
 
   public setState(state: ReadingSessionState): void {
+    this.fixedLayout = state.fixedLayout;
     this.importButton.disabled = state.busy;
-    this.typeButton.disabled = state.busy;
-    this.themeButton.disabled = state.busy;
+    this.typeButton.disabled = state.busy || state.fixedLayout;
+    this.themeButton.disabled = state.busy || state.fixedLayout;
     this.bookmarkButton.disabled = state.busy;
+    this.typeButton.title = state.fixedLayout ? 'PDF preserva o layout e a tipografia originais' : 'Tipografia';
+    this.setPageTheme(this.pageTheme);
+
+    if (state.fixedLayout && !this.panel.hidden) {
+      this.panel.hidden = true;
+      this.typeButton.classList.remove('is-active');
+    }
 
     if (state.busy) {
       this.showStatus(state.message, 'busy', 0);
@@ -124,7 +133,7 @@ export class ReaderControls {
   public setBookmarked(bookmarked: boolean): void {
     this.bookmarkButton.textContent = bookmarked ? '🔖' : '☆';
     this.bookmarkButton.classList.toggle('is-active', bookmarked);
-    this.bookmarkButton.title = bookmarked ? 'Remover bookmark desta página' : 'Adicionar bookmark desta página';
+    this.bookmarkButton.title = bookmarked ? 'Remover bookmark desta página' : 'Adicionar bookmark nesta página';
   }
 
   public setFocusMode(enabled: boolean): void {
@@ -141,6 +150,15 @@ export class ReaderControls {
 
   public setPageTheme(theme: PageTheme): void {
     this.pageTheme = theme;
+    if (this.fixedLayout) {
+      this.themeButton.classList.remove('is-active');
+      this.themeButton.textContent = '◧';
+      this.themeButton.title = 'PDF preserva as cores originais';
+      this.themeButton.setAttribute('aria-label', this.themeButton.title);
+      this.themeButton.setAttribute('aria-pressed', 'false');
+      return;
+    }
+
     const dark = theme === 'dark';
     this.themeButton.classList.toggle('is-active', dark);
     this.themeButton.textContent = dark ? '☀' : '☾';
@@ -348,11 +366,13 @@ export class ReaderControls {
   };
 
   private readonly toggleTypographyPanel = (): void => {
+    if (this.fixedLayout) return;
     this.panel.hidden = !this.panel.hidden;
     this.typeButton.classList.toggle('is-active', !this.panel.hidden);
   };
 
   private readonly togglePageTheme = (): void => {
+    if (this.fixedLayout) return;
     const previous = this.pageTheme;
     const next: PageTheme = previous === 'dark' ? 'light' : 'dark';
     this.setPageTheme(next);

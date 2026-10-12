@@ -5,6 +5,8 @@ import { importTxt } from '../import/TxtImporter';
 import { PaginationEngine } from '../pagination/PaginationEngine';
 import type { PageMap } from '../pagination/PageMap';
 import { DEFAULT_TYPOGRAPHY, type PaginatedPage, type TypographySettings } from '../pagination/types';
+import { loadPdfPublication } from '../pdf/PdfDocumentLoader';
+import { PdfPageTextureCache } from '../pdf/PdfPageTextureCache';
 import type { ReaderRenderer } from '../render/ReaderRenderer';
 
 export interface ReadingSessionState {
@@ -13,6 +15,7 @@ export interface ReadingSessionState {
   readonly pageCount: number;
   readonly busy: boolean;
   readonly message: string;
+  readonly fixedLayout: boolean;
 }
 
 export interface ReadingProgressSnapshot {
@@ -26,14 +29,27 @@ export interface RestoreReadingState {
   readonly typography?: TypographySettings | null;
 }
 
+export interface PdfPublicationInfo {
+  readonly id: string;
+  readonly title: string;
+  readonly pageCount: number;
+}
+
+interface PdfPublicationState {
+  readonly id: string;
+  readonly title: string;
+}
+
 export class ReadingSession {
   private readonly paginator = new PaginationEngine();
   private documentModel: BookDocument | null = null;
+  private pdfPublication: PdfPublicationState | null = null;
   private pageMap: PageMap | null = null;
   private pages: readonly PaginatedPage[] = [];
   private typographyState: TypographySettings = { ...DEFAULT_TYPOGRAPHY };
   private stateListener: ((state: ReadingSessionState) => void) | null = null;
   private progressListener: ((snapshot: ReadingProgressSnapshot) => void) | null = null;
+  private visualInvalidationListener: (() => void) | null = null;
   private currentLeftPage = 0;
   private pageCount = 0;
   private generation = 0;
@@ -51,9 +67,13 @@ export class ReadingSession {
   }
 
   public get typography(): TypographySettings { return this.typographyState; }
-  public get currentBookId(): string | null { return this.documentModel?.id ?? null; }
+  public get currentBookId(): string | null { return this.documentModel?.id ?? this.pdfPublication?.id ?? null; }
+  public get fixedLayout(): boolean { return this.pdfPublication !== null; }
 
   public get currentAnchor(): LogicalAnchor | null {
+    if (this.pdfPublication) {
+      return { chapterId: 'pdf', blockId: 'page', offset: this.currentLeftPage };
+    }
     if (!this.pageMap || !this.documentModel) return null;
     return this.pageMap.getPageStart(this.currentLeftPage);
   }
@@ -68,9 +88,13 @@ export class ReadingSession {
     this.emitProgress();
   }
 
+  public setVisualInvalidationListener(listener: (() => void) | null): void {
+    this.visualInvalidationListener = listener;
+  }
+
   public async importTxtFile(file: File, restore: RestoreReadingState = {}): Promise<BookDocument> {
     if (!file.name.toLowerCase().endsWith('.txt') && file.type !== 'text/plain') {
-      throw new Error('A V1.4 aceita TXT como formato de leitura nesta etapa.');
+      throw new Error('Este arquivo não é um TXT válido.');
     }
 
     this.setBusy(true, 'Lendo TXT…');
@@ -87,6 +111,61 @@ export class ReadingSession {
     const documentModel = importTxt(sourceName, sourceText);
     await this.loadDocument(documentModel, restore.anchor ?? null, restore.typography ?? null);
     return documentModel;
+  }
+
+  public async openPdfSource(
+    sourceName: string,
+    data: Uint8Array,
+    restore: RestoreReadingState = {},
+    knownBookId?: string
+  ): Promise<PdfPublicationInfo> {
+    const generation = ++this.generation;
+    const previousTypography = this.typographyState;
+    if (restore.typography) this.typographyState = { ...DEFAULT_TYPOGRAPHY, ...restore.typography };
+    this.renderer.setPageTurnTranslucency(this.typographyState.pageTurnTranslucency);
+    // PDFs are fixed-layout documents. Preserve the source pixels instead of applying
+    // the TXT paper theme over them; the physical world lighting still affects the mesh.
+    this.renderer.setPageTheme('light');
+    this.setBusy(true, 'Abrindo PDF…');
+
+    try {
+      const publication = await loadPdfPublication(sourceName, data, knownBookId);
+      if (generation !== this.generation) {
+        await publication.document.destroy();
+        throw new Error('A abertura do PDF foi substituída por outra operação.');
+      }
+
+      const requestedPage = restore.anchor?.chapterId === 'pdf'
+        ? restore.anchor.offset
+        : 0;
+      const targetPage = Math.max(0, Math.min(publication.document.numPages - 1, Math.floor(requestedPage)));
+      const targetLeftPage = Math.floor(targetPage / 2) * 2;
+      const cache = new PdfPageTextureCache(
+        publication.document,
+        () => this.visualInvalidationListener?.()
+      );
+
+      this.documentModel = null;
+      this.pdfPublication = { id: publication.id, title: publication.title };
+      this.pageMap = null;
+      this.pages = [];
+      this.pageCount = publication.document.numPages;
+      this.currentLeftPage = targetLeftPage;
+      this.renderer.setPublication(cache, targetLeftPage);
+      cache.warmAround(targetLeftPage);
+
+      this.setBusy(false, 'PDF pronto');
+      this.emitProgress();
+      return { id: publication.id, title: publication.title, pageCount: publication.document.numPages };
+    } catch (error: unknown) {
+      if (generation === this.generation) {
+        this.typographyState = previousTypography;
+        this.renderer.setPageTurnTranslucency(previousTypography.pageTurnTranslucency);
+        this.renderer.setPageTheme(previousTypography.pageTheme);
+        this.setBusy(false, 'Falha ao abrir PDF');
+      }
+      throw error;
+    }
   }
 
   public async loadDocument(
@@ -112,6 +191,7 @@ export class ReadingSession {
       const cache = new PageTextureCache(result.pages, settings);
 
       this.documentModel = documentModel;
+      this.pdfPublication = null;
       this.pageMap = result.pageMap;
       this.pages = result.pages;
       this.pageCount = result.pages.length;
@@ -135,10 +215,6 @@ export class ReadingSession {
   }
 
   public async updateTypography(patch: Partial<TypographySettings>): Promise<void> {
-    if (!this.documentModel) return;
-
-    const documentModel = this.documentModel;
-    const anchor = this.currentAnchor ?? firstAnchor(documentModel);
     const previousSettings = this.typographyState;
     const nextSettings: TypographySettings = { ...DEFAULT_TYPOGRAPHY, ...previousSettings, ...patch };
     this.typographyState = nextSettings;
@@ -146,6 +222,19 @@ export class ReadingSession {
     if ('pageTurnTranslucency' in patch) {
       this.renderer.setPageTurnTranslucency(nextSettings.pageTurnTranslucency);
     }
+
+    if (this.pdfPublication) {
+      // Fixed PDF pages keep their authored pixels. Store reader preferences for when a
+      // reflowable book is opened again, but do not mutate or repaginate the PDF.
+      this.renderer.setPageTheme('light');
+      this.emitProgress();
+      return;
+    }
+
+    if (!this.documentModel) return;
+    const documentModel = this.documentModel;
+    const anchor = this.currentAnchor ?? firstAnchor(documentModel);
+
     if ('pageTheme' in patch) {
       this.renderer.setPageTheme(nextSettings.pageTheme);
     }
@@ -200,6 +289,7 @@ export class ReadingSession {
     this.renderer.setPageChangeListener(null);
     this.stateListener = null;
     this.progressListener = null;
+    this.visualInvalidationListener = null;
   }
 
   private setBusy(busy: boolean, message: string): void {
@@ -210,11 +300,12 @@ export class ReadingSession {
 
   private emitState(): void {
     this.stateListener?.({
-      title: this.documentModel?.metadata.title ?? 'Book of Short Stories',
+      title: this.documentModel?.metadata.title ?? this.pdfPublication?.title ?? 'Book of Short Stories',
       page: Math.min(this.currentLeftPage + 1, Math.max(1, this.pageCount)),
       pageCount: this.pageCount,
       busy: this.busy,
-      message: this.message
+      message: this.message,
+      fixedLayout: this.pdfPublication !== null
     });
   }
 

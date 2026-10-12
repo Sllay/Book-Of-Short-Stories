@@ -6,6 +6,7 @@ import { SelectionGuard } from '../input/SelectionGuard';
 import type { PageTheme, TypographySettings } from '../pagination/types';
 import { FrameMetrics } from '../performance/FrameMetrics';
 import { PerformanceGovernor } from '../performance/PerformanceGovernor';
+import { createPdfBookId } from '../pdf/PdfDocumentLoader';
 import { ReadingSession, type ReadingProgressSnapshot } from '../reader/ReadingSession';
 import { ReaderRenderer } from '../render/ReaderRenderer';
 import { RenderScheduler } from '../runtime/RenderScheduler';
@@ -53,7 +54,7 @@ export class App {
 
     const label = document.createElement('div');
     label.className = 'foundation-label';
-    label.textContent = 'V1.4 • Offline Reading Session';
+    label.textContent = 'V2.1 • TXT + PDF';
 
     const hint = document.createElement('div');
     hint.className = 'interaction-hint';
@@ -85,6 +86,7 @@ export class App {
         this.metrics.reset();
       }
     });
+    this.session.setVisualInvalidationListener(() => this.scheduler.invalidate());
 
     this.input.subscribe(this.handlePointer);
 
@@ -181,9 +183,18 @@ export class App {
           typography: progress?.typography
         });
         this.controls.showMessage(`${recent.book.title} • restaurado do dispositivo`);
+      } else if (recent?.book.sourceType === 'pdf') {
+        this.persistedBookId = recent.book.id;
+        const progress = await this.storage.getProgress(recent.book.id);
+        const bytes = new Uint8Array(await recent.source.arrayBuffer());
+        await this.session.openPdfSource(recent.book.sourceName, bytes, {
+          anchor: progress?.anchor,
+          typography: progress?.typography
+        }, recent.book.id);
+        this.controls.showMessage(`${recent.book.title} • PDF restaurado do dispositivo`);
       } else {
         if (recent) {
-          this.controls.showMessage(`${sourceTypeLabel(recent.book.sourceType)} salvo localmente • leitor desse formato entra na V2.1`);
+          this.controls.showMessage(`${sourceTypeLabel(recent.book.sourceType)} salvo localmente • suporte entra em uma próxima versão`);
         }
         await this.loadSampleBook();
       }
@@ -205,28 +216,45 @@ export class App {
 
   private readonly handleImport = async (file: File): Promise<void> => {
     const sourceType = detectBookSourceType(file.name, file.type);
-    if (sourceType !== 'txt') {
-      if (sourceType === 'pdf' || sourceType === 'epub') {
-        throw new Error(`${sourceTypeLabel(sourceType)} reconhecido. O parser desse formato será a prioridade da V2.1; a V1.4 prepara o armazenamento para ele.`);
-      }
-      throw new Error('Formato ainda não suportado para leitura. Use TXT nesta etapa.');
+
+    if (sourceType === 'txt') {
+      const sourceText = await file.text();
+      const documentModel = importTxt(file.name, sourceText);
+      const previousProgress = await this.storage.getProgress(documentModel.id);
+
+      await this.session.loadDocument(documentModel, previousProgress?.anchor ?? null, previousProgress?.typography ?? null);
+      await this.storage.saveBookSource({
+        id: documentModel.id,
+        title: documentModel.metadata.title,
+        sourceName: file.name,
+        sourceType,
+        mimeType: file.type || 'text/plain'
+      }, file);
+      this.persistedBookId = documentModel.id;
+    } else if (sourceType === 'pdf') {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const bookId = await createPdfBookId(bytes);
+      const previousProgress = await this.storage.getProgress(bookId);
+      const publication = await this.session.openPdfSource(file.name, bytes, {
+        anchor: previousProgress?.anchor,
+        typography: previousProgress?.typography
+      }, bookId);
+
+      await this.storage.saveBookSource({
+        id: publication.id,
+        title: publication.title,
+        sourceName: file.name,
+        sourceType,
+        mimeType: file.type || 'application/pdf'
+      }, file);
+      this.persistedBookId = publication.id;
+      this.controls.showMessage(`${publication.title} • ${publication.pageCount} páginas`);
+    } else if (sourceType === 'epub') {
+      throw new Error('EPUB foi reconhecido, mas entra depois do PDF na V2.x.');
+    } else {
+      throw new Error('Formato ainda não suportado. Use TXT ou PDF.');
     }
 
-    const sourceText = await file.text();
-    const documentModel = importTxt(file.name, sourceText);
-    const previousProgress = await this.storage.getProgress(documentModel.id);
-
-    await this.session.loadDocument(documentModel, previousProgress?.anchor ?? null, previousProgress?.typography ?? null);
-
-    await this.storage.saveBookSource({
-      id: documentModel.id,
-      title: documentModel.metadata.title,
-      sourceName: file.name,
-      sourceType,
-      mimeType: file.type || 'text/plain'
-    }, file);
-
-    this.persistedBookId = documentModel.id;
     await this.persistCurrentProgress();
     await this.refreshBookmark();
     this.metrics.reset();
@@ -249,7 +277,7 @@ export class App {
   private readonly handleToggleBookmark = async (): Promise<boolean> => {
     const snapshot = this.session.snapshotProgress();
     if (!snapshot || snapshot.bookId !== this.persistedBookId) {
-      throw new Error('Importe um TXT para salvar bookmarks deste livro.');
+      throw new Error('Importe um TXT ou PDF para salvar bookmarks deste livro.');
     }
     return this.storage.toggleBookmark(snapshot.bookId, snapshot.anchor);
   };
