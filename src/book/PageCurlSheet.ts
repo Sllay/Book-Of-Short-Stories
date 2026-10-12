@@ -9,23 +9,23 @@ interface CurlUniforms {
   readonly uDragAmount: { value: number };
   readonly uWidth: { value: number };
   readonly uHeight: { value: number };
+  readonly uBackMap: { value: THREE.Texture };
+  readonly uPageTranslucency: { value: number };
 }
 
 /**
- * A page that deforms in the vertex shader while keeping the exact same
- * MeshStandardMaterial pipeline as the resting pages.
+ * A single physical page surface that deforms in the vertex shader while keeping
+ * the same MeshStandardMaterial pipeline as resting pages.
  *
- * Important: normals intentionally remain flat. That means page curl changes only
- * geometry, never the paper's global lighting response. The active sheet therefore
- * cannot become a bright/highlighted foreign object while it is being dragged.
+ * Front/back selection happens per fragment with gl_FrontFacing on this ONE mesh.
+ * There are no coincident front/back meshes, so the curl cannot expose two printed
+ * faces in the same place or look transparent because of depth/z overlap.
  */
 export class PageCurlSheet {
-  public readonly mesh = new THREE.Group();
+  public readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
 
-  private readonly frontGeometry: THREE.PlaneGeometry;
-  private readonly backGeometry: THREE.PlaneGeometry;
-  private readonly frontMaterial: THREE.MeshStandardMaterial;
-  private readonly backMaterial: THREE.MeshStandardMaterial;
+  private readonly geometry: THREE.PlaneGeometry;
+  private readonly material: THREE.MeshStandardMaterial;
   private readonly uniforms: CurlUniforms;
 
   public constructor(width: number, height: number, front: THREE.Texture, back: THREE.Texture) {
@@ -36,52 +36,36 @@ export class PageCurlSheet {
       uTwist: { value: 0 },
       uDragAmount: { value: 0 },
       uWidth: { value: width },
-      uHeight: { value: height }
+      uHeight: { value: height },
+      uBackMap: { value: back },
+      uPageTranslucency: { value: 0 }
     };
 
-    this.frontGeometry = new THREE.PlaneGeometry(width, height, 44, 30);
-    this.frontGeometry.translate(width / 2, 0, 0);
+    this.geometry = new THREE.PlaneGeometry(width, height, 44, 30);
+    this.geometry.translate(width / 2, 0, 0);
 
-    // The back uses its own tiny vertex/UV buffer so we can mirror the printed page
-    // without cloning the 1536x2048 page texture (important on mobile GPU memory).
-    this.backGeometry = this.frontGeometry.clone();
-    const backUv = this.backGeometry.getAttribute('uv');
-    for (let index = 0; index < backUv.count; index += 1) {
-      backUv.setX(index, 1 - backUv.getX(index));
-    }
-    backUv.needsUpdate = true;
+    this.material = createPaperMaterial(front, THREE.DoubleSide);
+    this.material.transparent = false;
+    this.material.opacity = 1;
+    this.material.depthTest = true;
+    this.material.depthWrite = true;
+    this.installCurlDeformation(this.material);
 
-    // BackSide materials invert the vertex normal internally. Pre-inverting this
-    // geometry cancels that behavior so both paper faces receive the same global
-    // room illumination as the stationary pages.
-    const backNormal = this.backGeometry.getAttribute('normal');
-    for (let index = 0; index < backNormal.count; index += 1) {
-      backNormal.setXYZ(
-        index,
-        -backNormal.getX(index),
-        -backNormal.getY(index),
-        -backNormal.getZ(index)
-      );
-    }
-    backNormal.needsUpdate = true;
-
-    this.frontMaterial = createPaperMaterial(front, THREE.FrontSide);
-    this.backMaterial = createPaperMaterial(back, THREE.BackSide);
-    this.installCurlDeformation(this.frontMaterial);
-    this.installCurlDeformation(this.backMaterial);
-
-    const frontMesh = new THREE.Mesh(this.frontGeometry, this.frontMaterial);
-    const backMesh = new THREE.Mesh(this.backGeometry, this.backMaterial);
-    frontMesh.renderOrder = 5;
-    backMesh.renderOrder = 5;
-    this.mesh.add(frontMesh, backMesh);
+    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.mesh.renderOrder = 5;
   }
 
   public setTextures(front: THREE.Texture, back: THREE.Texture): void {
-    // Maps stay non-null for the whole lifetime, so swapping them does not require a
-    // shader recompile. This keeps page turns cheap while preserving material parity.
-    this.frontMaterial.map = front;
-    this.backMaterial.map = back;
+    // Both maps stay allocated for the lifetime of the material, so swapping pages
+    // requires no material rebuild and no duplicate 1536x2048 texture.
+    this.material.map = front;
+    this.uniforms.uBackMap.value = back;
+  }
+
+  public setPageTranslucency(enabled: boolean): void {
+    // Optional print show-through only. This never enables alpha blending or makes the
+    // paper itself transparent; the default (0) is a fully opaque, single-face page.
+    this.uniforms.uPageTranslucency.value = enabled ? 0.18 : 0;
   }
 
   public setProgress(progress: number): void {
@@ -101,11 +85,7 @@ export class PageCurlSheet {
     this.uniforms.uDragAmount.value = THREE.MathUtils.clamp(amount, 0, 1);
   }
 
-  /**
-   * Kept temporarily as an API compatibility shim for the V1.4.2 renderer.
-   * Lighting is intentionally ignored: MeshStandardMaterial now receives the exact
-   * same scene lights as every stationary paper surface automatically.
-   */
+  /** Compatibility shim kept while V1 reader APIs are stabilized. */
   public setLighting(
     _ambientColor: THREE.Color,
     _keyColor: THREE.Color,
@@ -121,10 +101,8 @@ export class PageCurlSheet {
   }
 
   public dispose(): void {
-    this.frontGeometry.dispose();
-    this.backGeometry.dispose();
-    this.frontMaterial.dispose();
-    this.backMaterial.dispose();
+    this.geometry.dispose();
+    this.material.dispose();
   }
 
   private installCurlDeformation(material: THREE.MeshStandardMaterial): void {
@@ -190,8 +168,35 @@ export class PageCurlSheet {
           transformed.y += wrinkle * 0.20 * (0.35 + pageU);
           `
         );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <map_pars_fragment>',
+          `#include <map_pars_fragment>
+          uniform sampler2D uBackMap;
+          uniform float uPageTranslucency;`
+        )
+        .replace(
+          '#include <map_fragment>',
+          `
+          #ifdef USE_MAP
+            vec4 frontPageSample = texture2D(map, vMapUv);
+            vec4 backPageSample = texture2D(uBackMap, vec2(1.0 - vMapUv.x, vMapUv.y));
+
+            #ifdef DECODE_VIDEO_TEXTURE
+              frontPageSample = sRGBTransferEOTF(frontPageSample);
+              backPageSample = sRGBTransferEOTF(backPageSample);
+            #endif
+
+            vec4 visiblePageSample = gl_FrontFacing ? frontPageSample : backPageSample;
+            vec4 oppositePageSample = gl_FrontFacing ? backPageSample : frontPageSample;
+            vec4 sampledDiffuseColor = mix(visiblePageSample, oppositePageSample, uPageTranslucency);
+            diffuseColor *= sampledDiffuseColor;
+          #endif
+          `
+        );
     };
 
-    material.customProgramCacheKey = () => 'book-page-curl-standard-material-v1';
+    material.customProgramCacheKey = () => 'book-page-curl-single-opaque-surface-v2';
   }
 }
