@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "check": "tsc --noEmit"
   },
-  "dependencies": { "three": "0.186.1" },
+  "dependencies": {
+    "pdfjs-dist": "5.7.284",
+    "three": "0.186.1"
+  },
   "devDependencies": {
     "@types/three": "0.186.0",
     "typescript": "7.0.2",
