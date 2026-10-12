@@ -240,9 +240,8 @@ body { min-width: 320px; min-height: 100dvh; }
 }
 
 .reader-toggle {
-  appearance: none;
-  -webkit-appearance: none;
   justify-self: end;
+  position: relative;
   width: 38px;
   height: 22px;
   margin: 0;
@@ -255,8 +254,7 @@ body { min-width: 320px; min-height: 100dvh; }
   transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
-.reader-toggle::after {
-  content: "";
+.reader-toggle-knob {
   display: block;
   width: 16px;
   height: 16px;
@@ -265,14 +263,15 @@ body { min-width: 320px; min-height: 100dvh; }
   box-shadow: 0 1px 5px rgba(0,0,0,.32);
   transform: translateX(0);
   transition: transform 140ms ease, background 140ms ease;
+  pointer-events: none;
 }
 
-.reader-toggle:checked {
+.reader-toggle.is-checked {
   background: rgba(112,82,58,.88);
   border-color: rgba(244,234,215,.16);
 }
 
-.reader-toggle:checked::after {
+.reader-toggle.is-checked .reader-toggle-knob {
   transform: translateX(16px);
   background: #f4ead7;
 }
