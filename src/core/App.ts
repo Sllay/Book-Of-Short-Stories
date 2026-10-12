@@ -73,7 +73,9 @@ export class App {
       this.renderer.render();
 
       const stats = this.metrics.record(deltaMs);
-      this.governor.reportAverageFrameTime(stats.averageFrameTimeMs, now);
+      if (this.scheduler.currentMode === 'interactive') {
+        this.governor.reportAverageFrameTime(stats.averageFrameTimeMs, now);
+      }
       this.updateDebug(stats);
 
       if (!stillInteracting && !this.pointerIsDown && this.scheduler.currentMode === 'interactive') {
@@ -356,6 +358,11 @@ export class App {
 
   private readonly handleReducedMotionChange = (event: MediaQueryListEvent): void => {
     this.renderer.setReducedMotion(event.matches);
+    if (!document.hidden && !this.pointerIsDown && this.scheduler.currentMode !== 'interactive') {
+      this.scheduler.resetTiming();
+      this.scheduler.setMode(this.idleRenderMode());
+      this.scheduler.invalidate();
+    }
   };
 
   private readonly handleWindowError = (): void => {
