@@ -9,8 +9,6 @@ import type { PaginatedPage, TypographySettings } from '../pagination/types';
 const PDF_TEXTURE_WIDTH = 1536;
 const PDF_TEXTURE_HEIGHT = 2048;
 
-type SourcePageKind = 'text' | 'image';
-
 type RenderState = 'idle' | 'queued' | 'rendering' | 'ready' | 'failed';
 
 export interface PdfReaderTextSourcePage {
