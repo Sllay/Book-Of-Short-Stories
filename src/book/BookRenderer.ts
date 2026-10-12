@@ -109,13 +109,14 @@ export class BookRenderer {
 
     this.turningSheet = new PageCurlSheet(PAGE_WIDTH, PAGE_HEIGHT, this.fallbackTexture, this.fallbackTexture);
     this.turningSheet.mesh.position.z = 0.055;
+    this.turningSheet.mesh.visible = false;
     this.root.add(this.turningSheet.mesh);
 
     this.hitRight = this.createHitSurface(PAGE_WIDTH / 2);
     this.hitLeft = this.createHitSurface(-PAGE_WIDTH / 2);
     this.root.add(this.hitRight, this.hitLeft);
 
-    this.configureForwardVisual();
+    this.configureIdleVisual();
   }
 
   public get currentLeftPageIndex(): number { return this.spreadLeftIndex; }
@@ -141,7 +142,7 @@ export class BookRenderer {
     this.pageSource = source;
     this.spreadLeftIndex = Math.max(0, Math.floor(initialPageIndex / 2) * 2);
     this.resetInteractionState();
-    this.configureForwardVisual();
+    this.configureIdleVisual();
     this.pageSource.warmAround(this.spreadLeftIndex);
     this.pageChangeListener?.(this.spreadLeftIndex);
   }
@@ -159,8 +160,6 @@ export class BookRenderer {
     } else if (pointer.isDown && this.turnState === 'dragging' && pointer.id === this.gesturePointerId) {
       this.updateDrag(pointer);
     } else if (!pointer.isDown && this.pointerWasDown && this.turnState === 'dragging' && pointer.id === this.gesturePointerId) {
-      // A very fast flick may contain no pointermove event at all. Always consume the
-      // pointerup coordinates before deciding whether the page commits.
       this.updateDrag(pointer);
       this.endDrag();
     }
@@ -202,7 +201,7 @@ export class BookRenderer {
   public cancelInteraction(): void {
     this.emitMotion(0, false);
     this.resetInteractionState();
-    this.configureForwardVisual();
+    this.configureIdleVisual();
     this.applySheetState();
   }
 
@@ -243,6 +242,7 @@ export class BookRenderer {
       return;
     }
 
+    this.turningSheet.mesh.visible = true;
     this.turnState = 'dragging';
     this.gesturePointerId = pointer.id;
     this.gestureSerial += 1;
@@ -350,7 +350,7 @@ export class BookRenderer {
     this.completionVelocity = 0;
     this.motionIdleMs = 0;
     this.gesturePointerId = null;
-    this.configureForwardVisual();
+    this.configureIdleVisual();
     this.applySheetState();
     this.pageSource?.warmAround(this.spreadLeftIndex);
 
@@ -389,12 +389,21 @@ export class BookRenderer {
     this.animationElapsedMs = 0;
   }
 
+  private configureIdleVisual(): void {
+    const left = this.spreadLeftIndex;
+    this.setMaterialTexture(this.leftPageMaterial, left);
+    this.setMaterialTexture(this.rightPageMaterial, left + 1);
+    this.turningSheet.setTextures(this.textureAt(left + 1), this.textureAt(left + 2));
+    this.turningSheet.mesh.visible = false;
+    this.progress = 0;
+    this.applySheetState();
+  }
+
   private configureForwardVisual(): void {
     const left = this.spreadLeftIndex;
     this.setMaterialTexture(this.leftPageMaterial, left);
     this.setMaterialTexture(this.rightPageMaterial, left + 3);
     this.turningSheet.setTextures(this.textureAt(left + 1), this.textureAt(left + 2));
-    this.progress = this.direction === 'backward' ? this.progress : Math.min(this.progress, 1);
     this.applySheetState();
   }
 
