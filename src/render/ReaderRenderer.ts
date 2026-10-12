@@ -89,6 +89,7 @@ export class ReaderRenderer {
   }
 
   public update(deltaMs: number): boolean {
+    this.world.update(deltaMs);
     return this.book.update(deltaMs);
   }
 
@@ -97,9 +98,6 @@ export class ReaderRenderer {
   }
 
   public render(): void {
-    // The world is deliberately static most of the time. The clock only refreshes
-    // when a render is already happening, so time-of-day costs no continuous RAF.
-    this.world.refreshClock();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -119,20 +117,27 @@ export class ReaderRenderer {
 
   private applyCameraPose(): void {
     const portraitLike = this.camera.aspect < 1.2;
-    const farZ = portraitLike ? 8.85 : 7.6;
-    const nearZ = portraitLike ? 6.55 : 5.25;
-    const z = THREE.MathUtils.lerp(farZ, nearZ, this.zoom);
+    const easedZoom = THREE.MathUtils.smoothstep(this.zoom, 0, 1);
 
-    // Pulled back: camera sits on the reader side and looks slightly toward the
-    // wall/mirror, revealing the environment. Zooming in smoothly moves toward a
-    // near top-down reading pose so the book stays comfortable to read.
-    const farY = portraitLike ? -1.0 : -1.72;
-    const nearY = portraitLike ? -0.08 : 0.04;
-    const cameraY = THREE.MathUtils.lerp(farY, nearY, this.zoom);
-    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.32 : 0.58, 0, this.zoom);
+    const farZ = portraitLike ? 8.75 : 7.55;
+    const nearZ = portraitLike ? 6.5 : 5.23;
+    const farY = portraitLike ? -0.72 : -1.12;
+    const nearY = portraitLike ? -0.03 : 0.02;
+    const farX = portraitLike ? -0.12 : -0.38;
+    const nearX = 0;
 
-    this.camera.position.set(0, cameraY, z);
-    this.camera.lookAt(0, lookY, -0.03);
+    const z = THREE.MathUtils.lerp(farZ, nearZ, easedZoom);
+    const cameraY = THREE.MathUtils.lerp(farY, nearY, easedZoom);
+    const cameraX = THREE.MathUtils.lerp(farX, nearX, easedZoom);
+    const lookX = THREE.MathUtils.lerp(portraitLike ? 0.06 : 0.24, 0, easedZoom);
+    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.22 : 0.42, 0, easedZoom);
+
+    // Pulling back reveals the right wall, window, candle and mirror with a modest
+    // oblique angle. Zooming in removes lateral skew and becomes almost top-down.
+    this.camera.fov = THREE.MathUtils.lerp(portraitLike ? 33 : 34, portraitLike ? 30.5 : 29.5, easedZoom);
+    this.camera.position.set(cameraX, cameraY, z);
+    this.camera.lookAt(lookX, lookY, -0.04);
+    this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
   }
 }
