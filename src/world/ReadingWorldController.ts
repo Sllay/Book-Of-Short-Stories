@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createWaxTexture, createWoodTexture } from './WorldMaterialTextures';
 
 interface WorldPalette {
   readonly skyTop: number;
@@ -31,6 +32,7 @@ export class ReadingWorldController {
 
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
+  private readonly textures: THREE.Texture[] = [];
   private readonly deskMaterial: THREE.MeshStandardMaterial;
   private readonly wallMaterial: THREE.MeshStandardMaterial;
   private readonly mirrorMaterial: THREE.MeshBasicMaterial;
@@ -62,8 +64,10 @@ export class ReadingWorldController {
     this.reflectionTexture.wrapS = THREE.ClampToEdgeWrapping;
     this.reflectionTexture.wrapT = THREE.ClampToEdgeWrapping;
 
+    const woodTexture = this.trackTexture(createWoodTexture());
     this.deskMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x5a3927,
+      color: 0xffffff,
+      map: woodTexture,
       roughness: 0.9,
       metalness: 0
     }));
@@ -72,8 +76,9 @@ export class ReadingWorldController {
     this.root.add(desk);
 
     const deskLipMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x342218,
-      roughness: 0.88,
+      color: 0x7b543b,
+      map: woodTexture,
+      roughness: 0.91,
       metalness: 0
     }));
     const deskLip = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(10.7, 0.16, 0.19)), deskLipMaterial);
@@ -150,6 +155,7 @@ export class ReadingWorldController {
 
   public dispose(): void {
     this.reflectionTexture.dispose();
+    for (const texture of this.textures) texture.dispose();
     for (const geometry of this.geometries) geometry.dispose();
     for (const material of this.materials) material.dispose();
   }
@@ -238,15 +244,14 @@ export class ReadingWorldController {
     const root = new THREE.Group();
     root.position.set(-3.08, 0.92, -0.31);
 
+    const waxTexture = this.trackTexture(createWaxTexture());
     const waxMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xe4c79a,
+      color: 0xf1ddb8,
+      map: waxTexture,
       roughness: 0.97,
       metalness: 0
     }));
 
-    // Keep the silhouette unmistakably candle-like: one wax cylinder, a small melted
-    // puddle, and a few attached drips. No holder/rim around the body, which previously
-    // made the candle read as if it were sitting inside a cup.
     const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.18, 0.22, 0.46, 24)), waxMaterial);
     wax.rotation.x = Math.PI / 2;
     wax.position.z = 0.27;
@@ -436,6 +441,11 @@ export class ReadingWorldController {
   private trackMaterial<T extends THREE.Material>(material: T): T {
     this.materials.push(material);
     return material;
+  }
+
+  private trackTexture<T extends THREE.Texture>(texture: T): T {
+    this.textures.push(texture);
+    return texture;
   }
 }
 

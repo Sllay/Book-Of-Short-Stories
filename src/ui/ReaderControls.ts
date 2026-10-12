@@ -1,9 +1,10 @@
-import type { TypographySettings } from '../pagination/types';
+import type { PageTheme, TypographySettings } from '../pagination/types';
 import type { ReadingSessionState } from '../reader/ReadingSession';
 
 interface ReaderControlsCallbacks {
   readonly onImport: (file: File) => Promise<void>;
   readonly onTypography: (patch: Partial<TypographySettings>) => Promise<void>;
+  readonly onPageTheme: (theme: PageTheme) => Promise<void> | void;
   readonly onToggleBookmark: () => Promise<boolean>;
   readonly onFocusMode: (enabled: boolean) => Promise<void> | void;
   readonly onAudioEnabled: (enabled: boolean) => Promise<void> | void;
@@ -15,6 +16,7 @@ export class ReaderControls {
   private readonly drawerToggle = document.createElement('button');
   private readonly importButton = document.createElement('button');
   private readonly typeButton = document.createElement('button');
+  private readonly themeButton = document.createElement('button');
   private readonly bookmarkButton = document.createElement('button');
   private readonly focusButton = document.createElement('button');
   private readonly audioButton = document.createElement('button');
@@ -25,6 +27,7 @@ export class ReaderControls {
   private statusTimer: number | null = null;
   private focusEnabled = false;
   private audioEnabled = true;
+  private pageTheme: PageTheme;
   private drawerOpen = false;
 
   public constructor(
@@ -33,6 +36,7 @@ export class ReaderControls {
     private readonly callbacks: ReaderControlsCallbacks
   ) {
     this.root.className = 'reader-controls';
+    this.pageTheme = settings.pageTheme ?? 'light';
 
     this.importButton.type = 'button';
     this.importButton.className = 'reader-tool-button';
@@ -43,6 +47,10 @@ export class ReaderControls {
     this.typeButton.className = 'reader-tool-button';
     this.typeButton.textContent = 'Aa';
     this.typeButton.title = 'Tipografia';
+
+    this.themeButton.type = 'button';
+    this.themeButton.className = 'reader-tool-button';
+    this.setPageTheme(this.pageTheme);
 
     this.bookmarkButton.type = 'button';
     this.bookmarkButton.className = 'reader-tool-button';
@@ -72,7 +80,7 @@ export class ReaderControls {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'reader-toolbar';
-    toolbar.append(this.importButton, this.typeButton, this.bookmarkButton, this.focusButton, this.audioButton);
+    toolbar.append(this.importButton, this.typeButton, this.themeButton, this.bookmarkButton, this.focusButton, this.audioButton);
 
     this.drawer.className = 'reader-drawer';
     this.drawer.append(toolbar, this.drawerToggle);
@@ -91,6 +99,7 @@ export class ReaderControls {
     this.importButton.addEventListener('click', this.openFilePicker);
     this.fileInput.addEventListener('change', this.handleFileSelected);
     this.typeButton.addEventListener('click', this.toggleTypographyPanel);
+    this.themeButton.addEventListener('click', this.togglePageTheme);
     this.bookmarkButton.addEventListener('click', this.toggleBookmark);
     this.focusButton.addEventListener('click', this.toggleFocusMode);
     this.audioButton.addEventListener('click', this.toggleAudio);
@@ -102,6 +111,7 @@ export class ReaderControls {
   public setState(state: ReadingSessionState): void {
     this.importButton.disabled = state.busy;
     this.typeButton.disabled = state.busy;
+    this.themeButton.disabled = state.busy;
     this.bookmarkButton.disabled = state.busy;
 
     if (state.busy) {
@@ -129,6 +139,16 @@ export class ReaderControls {
     this.audioButton.textContent = enabled ? '🔊' : '🔇';
   }
 
+  public setPageTheme(theme: PageTheme): void {
+    this.pageTheme = theme;
+    const dark = theme === 'dark';
+    this.themeButton.classList.toggle('is-active', dark);
+    this.themeButton.textContent = dark ? '☀' : '☾';
+    this.themeButton.title = dark ? 'Usar papel claro' : 'Usar papel escuro';
+    this.themeButton.setAttribute('aria-label', this.themeButton.title);
+    this.themeButton.setAttribute('aria-pressed', String(dark));
+  }
+
   public showError(message: string): void {
     this.showStatus(message, 'error', 3400);
   }
@@ -143,6 +163,7 @@ export class ReaderControls {
     this.importButton.removeEventListener('click', this.openFilePicker);
     this.fileInput.removeEventListener('change', this.handleFileSelected);
     this.typeButton.removeEventListener('click', this.toggleTypographyPanel);
+    this.themeButton.removeEventListener('click', this.togglePageTheme);
     this.bookmarkButton.removeEventListener('click', this.toggleBookmark);
     this.focusButton.removeEventListener('click', this.toggleFocusMode);
     this.audioButton.removeEventListener('click', this.toggleAudio);
@@ -329,6 +350,17 @@ export class ReaderControls {
   private readonly toggleTypographyPanel = (): void => {
     this.panel.hidden = !this.panel.hidden;
     this.typeButton.classList.toggle('is-active', !this.panel.hidden);
+  };
+
+  private readonly togglePageTheme = (): void => {
+    const previous = this.pageTheme;
+    const next: PageTheme = previous === 'dark' ? 'light' : 'dark';
+    this.setPageTheme(next);
+    this.showMessage(next === 'dark' ? 'Papel escuro ativado' : 'Papel claro ativado');
+    void Promise.resolve(this.callbacks.onPageTheme(next)).catch((error: unknown) => {
+      this.setPageTheme(previous);
+      this.showError(error instanceof Error ? error.message : 'Não foi possível alterar a cor do papel.');
+    });
   };
 
   private readonly toggleBookmark = (): void => {

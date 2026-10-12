@@ -4,6 +4,8 @@ import { PAGE_LOGICAL_HEIGHT, PAGE_LOGICAL_WIDTH } from '../pagination/types';
 
 const PAGE_TEXTURE_WIDTH = 1536;
 const PAGE_TEXTURE_HEIGHT = 2048;
+const DARK_PAPER = '#171615';
+const DARK_INK = '#eee9df';
 
 export function createPageTexture(
   page: PaginatedPage | null,
@@ -23,25 +25,37 @@ export function createPageTexture(
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
 
-  context.fillStyle = settings.paperTone;
+  const dark = settings.pageTheme === 'dark';
+  const paperTone = dark ? DARK_PAPER : settings.paperTone;
+  const inkTone = dark ? DARK_INK : settings.inkTone;
+
+  context.fillStyle = paperTone;
   context.fillRect(0, 0, PAGE_LOGICAL_WIDTH, PAGE_LOGICAL_HEIGHT);
+  drawPaperSurface(context, pageIndex ?? 0, dark);
 
   const innerShade = context.createLinearGradient(0, 0, PAGE_LOGICAL_WIDTH, 0);
-  innerShade.addColorStop(0, 'rgba(68, 48, 31, 0.060)');
-  innerShade.addColorStop(0.055, 'rgba(68, 48, 31, 0.012)');
-  innerShade.addColorStop(0.92, 'rgba(68, 48, 31, 0.004)');
-  innerShade.addColorStop(1, 'rgba(68, 48, 31, 0.030)');
+  if (dark) {
+    innerShade.addColorStop(0, 'rgba(0, 0, 0, 0.11)');
+    innerShade.addColorStop(0.055, 'rgba(0, 0, 0, 0.025)');
+    innerShade.addColorStop(0.92, 'rgba(255, 255, 255, 0.006)');
+    innerShade.addColorStop(1, 'rgba(0, 0, 0, 0.055)');
+  } else {
+    innerShade.addColorStop(0, 'rgba(68, 48, 31, 0.060)');
+    innerShade.addColorStop(0.055, 'rgba(68, 48, 31, 0.012)');
+    innerShade.addColorStop(0.92, 'rgba(68, 48, 31, 0.004)');
+    innerShade.addColorStop(1, 'rgba(68, 48, 31, 0.030)');
+  }
   context.fillStyle = innerShade;
   context.fillRect(0, 0, PAGE_LOGICAL_WIDTH, PAGE_LOGICAL_HEIGHT);
 
   if (page) {
     context.textAlign = 'left';
     context.textBaseline = 'alphabetic';
-    context.fillStyle = settings.inkTone;
+    context.fillStyle = inkTone;
 
     for (const line of page.lines) {
       context.font = `${line.fontWeight} ${line.fontSize}px ${settings.fontFamily}`;
-      context.globalAlpha = line.kind === 'heading' ? 0.91 : 0.82;
+      context.globalAlpha = line.kind === 'heading' ? (dark ? 0.96 : 0.91) : (dark ? 0.90 : 0.82);
       context.fillText(line.text, line.x, line.baselineY);
     }
   }
@@ -54,8 +68,8 @@ export function createPageTexture(
     const edgeInset = Math.max(34, settings.marginX * 0.58, fontSize * 1.7);
     const bottomInset = Math.max(34, fontSize * 1.8);
 
-    context.globalAlpha = 0.43;
-    context.fillStyle = settings.inkTone;
+    context.globalAlpha = dark ? 0.56 : 0.43;
+    context.fillStyle = inkTone;
     context.textAlign = isLeftPage ? 'left' : 'right';
     context.textBaseline = 'alphabetic';
     context.font = `400 ${fontSize}px ${settings.fontFamily}`;
@@ -76,4 +90,44 @@ export function createPageTexture(
   texture.generateMipmaps = false;
   texture.needsUpdate = true;
   return texture;
+}
+
+function drawPaperSurface(context: CanvasRenderingContext2D, pageIndex: number, dark: boolean): void {
+  let seed = (pageIndex + 1) * 2654435761 >>> 0;
+  const random = (): number => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+
+  context.save();
+  context.lineCap = 'round';
+
+  for (let index = 0; index < 190; index += 1) {
+    const x = random() * PAGE_LOGICAL_WIDTH;
+    const y = random() * PAGE_LOGICAL_HEIGHT;
+    const length = 3 + random() * 15;
+    const tilt = (random() - 0.5) * 0.22;
+    const alpha = (dark ? 0.010 : 0.012) + random() * (dark ? 0.018 : 0.016);
+    context.strokeStyle = dark
+      ? `rgba(255,255,255,${alpha.toFixed(4)})`
+      : `rgba(80,68,55,${alpha.toFixed(4)})`;
+    context.lineWidth = 0.32 + random() * 0.42;
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + length, y + length * tilt);
+    context.stroke();
+  }
+
+  for (let index = 0; index < 80; index += 1) {
+    const alpha = (dark ? 0.010 : 0.009) + random() * 0.014;
+    context.fillStyle = dark
+      ? `rgba(255,255,255,${alpha.toFixed(4)})`
+      : `rgba(58,48,39,${alpha.toFixed(4)})`;
+    const radius = 0.28 + random() * 0.62;
+    context.beginPath();
+    context.arc(random() * PAGE_LOGICAL_WIDTH, random() * PAGE_LOGICAL_HEIGHT, radius, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.restore();
 }

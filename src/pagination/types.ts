@@ -1,5 +1,7 @@
 import type { BookBlockKind, LogicalAnchor } from '../document/BookDocument';
 
+export type PageTheme = 'light' | 'dark';
+
 export interface TypographySettings {
   readonly fontFamily: string;
   readonly fontSize: number;
@@ -10,6 +12,7 @@ export interface TypographySettings {
   readonly paragraphSpacing: number;
   readonly pageNumberScale: number;
   readonly pageTurnTranslucency: boolean;
+  readonly pageTheme: PageTheme;
   readonly paperTone: string;
   readonly inkTone: string;
 }
@@ -47,6 +50,7 @@ export const DEFAULT_TYPOGRAPHY: TypographySettings = {
   paragraphSpacing: 18,
   pageNumberScale: 1,
   pageTurnTranslucency: false,
+  pageTheme: 'light',
   paperTone: '#f2ead7',
   inkTone: '#40362d'
 };

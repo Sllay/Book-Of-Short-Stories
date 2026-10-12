@@ -47,6 +47,7 @@ export class ReadingSession {
       this.emitProgress();
     });
     this.renderer.setPageTurnTranslucency(this.typographyState.pageTurnTranslucency);
+    this.renderer.setPageTheme(this.typographyState.pageTheme);
   }
 
   public get typography(): TypographySettings { return this.typographyState; }
@@ -95,11 +96,10 @@ export class ReadingSession {
   ): Promise<void> {
     const generation = ++this.generation;
     const previousTypography = this.typographyState;
-    // Old V1.4 snapshots may not contain newer visual settings. Merge persisted
-    // values over current defaults so migrations remain transparent.
     if (typography) this.typographyState = { ...DEFAULT_TYPOGRAPHY, ...typography };
     const settings = this.typographyState;
     this.renderer.setPageTurnTranslucency(settings.pageTurnTranslucency);
+    this.renderer.setPageTheme(settings.pageTheme);
     this.setBusy(true, 'Paginando livro…');
 
     try {
@@ -126,6 +126,7 @@ export class ReadingSession {
         if (typography) {
           this.typographyState = previousTypography;
           this.renderer.setPageTurnTranslucency(previousTypography.pageTurnTranslucency);
+          this.renderer.setPageTheme(previousTypography.pageTheme);
         }
         this.setBusy(false, 'Falha ao paginar');
       }
@@ -145,17 +146,28 @@ export class ReadingSession {
     if ('pageTurnTranslucency' in patch) {
       this.renderer.setPageTurnTranslucency(nextSettings.pageTurnTranslucency);
     }
+    if ('pageTheme' in patch) {
+      this.renderer.setPageTheme(nextSettings.pageTheme);
+    }
 
-    // Footer scale and page-turn translucency do not affect text layout. Handle them
-    // without a full pagination pass; rebuild page textures only when the number size
-    // itself changed.
     const patchKeys = Object.keys(patch) as Array<keyof TypographySettings>;
-    const visualOnlyChange = patchKeys.length > 0 && patchKeys.every(
-      (key) => key === 'pageNumberScale' || key === 'pageTurnTranslucency'
-    );
+    const visualOnlyKeys: ReadonlySet<keyof TypographySettings> = new Set([
+      'pageNumberScale',
+      'pageTurnTranslucency',
+      'pageTheme',
+      'paperTone',
+      'inkTone'
+    ]);
+    const textureKeys: ReadonlySet<keyof TypographySettings> = new Set([
+      'pageNumberScale',
+      'pageTheme',
+      'paperTone',
+      'inkTone'
+    ]);
+    const visualOnlyChange = patchKeys.length > 0 && patchKeys.every((key) => visualOnlyKeys.has(key));
 
     if (visualOnlyChange) {
-      if ('pageNumberScale' in patch && this.pages.length > 0) {
+      if (patchKeys.some((key) => textureKeys.has(key)) && this.pages.length > 0) {
         const cache = new PageTextureCache(this.pages, nextSettings);
         this.renderer.setPublication(cache, this.currentLeftPage);
         cache.warmAround(this.currentLeftPage);
@@ -170,6 +182,7 @@ export class ReadingSession {
       if (this.typographyState === nextSettings) {
         this.typographyState = previousSettings;
         this.renderer.setPageTurnTranslucency(previousSettings.pageTurnTranslucency);
+        this.renderer.setPageTheme(previousSettings.pageTheme);
       }
       throw error;
     }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BookRenderer, type PageTurnDirection, type PageTurnMotion } from '../book/BookRenderer';
 import type { BookPageSource } from '../book/PageTextureCache';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
+import type { PageTheme } from '../pagination/types';
 import { ReadingWorldController } from '../world/ReadingWorldController';
 
 const MAX_FRAMEBUFFER_PIXELS = 4_200_000;
@@ -60,6 +61,10 @@ export class ReaderRenderer {
 
   public setPageTurnTranslucency(enabled: boolean): void {
     this.book.setPageTurnTranslucency(enabled);
+  }
+
+  public setPageTheme(theme: PageTheme): void {
+    this.book.setPageTheme(theme);
   }
 
   public setFocusMode(enabled: boolean): void {

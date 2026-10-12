@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { PointerSnapshot } from '../core/types';
+import type { PageTheme } from '../pagination/types';
 import type { BookPageSource } from './PageTextureCache';
 import { PageCurlSheet } from './PageCurlSheet';
+import { createPageStackTexture } from './MaterialTextures';
 
 const PAGE_WIDTH = 2.3;
 const PAGE_HEIGHT = 2.95;
@@ -30,16 +32,20 @@ export class BookRenderer {
 
   private readonly staticGeometries: THREE.BufferGeometry[] = [];
   private readonly staticMaterials: THREE.Material[] = [];
+  private readonly ownedTextures: THREE.Texture[] = [];
   private readonly leftPageMaterial: THREE.MeshStandardMaterial;
   private readonly rightPageMaterial: THREE.MeshStandardMaterial;
+  private readonly pageBlockMaterial: THREE.MeshStandardMaterial;
   private readonly turningSheet: PageCurlSheet;
   private readonly hitRight: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private readonly hitLeft: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
+  private readonly fallbackPixels = new Uint8Array([242, 234, 215, 255]);
   private readonly fallbackTexture: THREE.DataTexture;
 
   private pageSource: BookPageSource | null = null;
+  private pageTheme: PageTheme = 'light';
   private spreadLeftIndex = 0;
   private progress = 0;
   private grabX = 0.9;
@@ -73,7 +79,7 @@ export class BookRenderer {
     this.root.rotation.x = -0.08;
     this.root.position.y = -0.04;
 
-    this.fallbackTexture = new THREE.DataTexture(new Uint8Array([242, 234, 215, 255]), 1, 1, THREE.RGBAFormat);
+    this.fallbackTexture = new THREE.DataTexture(this.fallbackPixels, 1, 1, THREE.RGBAFormat);
     this.fallbackTexture.colorSpace = THREE.SRGBColorSpace;
     this.fallbackTexture.needsUpdate = true;
 
@@ -83,9 +89,15 @@ export class BookRenderer {
     cover.position.z = -0.18;
     this.root.add(cover);
 
-    const blockMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({ color: 0xd7cdb8, roughness: 0.95 }));
+    const pageStackTexture = this.trackTexture(createPageStackTexture());
+    this.pageBlockMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0xd7cdb8,
+      map: pageStackTexture,
+      roughness: 0.98,
+      metalness: 0
+    }));
     const blockGeometry = this.trackGeometry(new THREE.BoxGeometry(4.72, 3.02, 0.16));
-    const pageBlock = new THREE.Mesh(blockGeometry, blockMaterial);
+    const pageBlock = new THREE.Mesh(blockGeometry, this.pageBlockMaterial);
     pageBlock.position.z = -0.075;
     this.root.add(pageBlock);
 
@@ -100,11 +112,6 @@ export class BookRenderer {
     const rightPage = new THREE.Mesh(rightGeometry, this.rightPageMaterial);
     rightPage.position.set(PAGE_WIDTH / 2, 0, 0.027);
     this.root.add(rightPage);
-
-    // Do not draw a separate center strip. The old unlit beige gutter was rendered
-    // above both pages and therefore stayed bright at night, reading like a glowing
-    // line. The meeting edges of the two real page surfaces already create the spine;
-    // keeping only those surfaces guarantees the center follows the same lighting.
 
     this.turningSheet = new PageCurlSheet(PAGE_WIDTH, PAGE_HEIGHT, this.fallbackTexture, this.fallbackTexture);
     this.turningSheet.mesh.position.z = 0.055;
@@ -138,6 +145,16 @@ export class BookRenderer {
 
   public setPageTurnTranslucency(enabled: boolean): void {
     this.turningSheet.setPageTranslucency(enabled);
+  }
+
+  public setPageTheme(theme: PageTheme): void {
+    this.pageTheme = theme;
+    const dark = theme === 'dark';
+    this.pageBlockMaterial.color.setHex(dark ? 0x2b2926 : 0xd7cdb8);
+    this.fallbackPixels[0] = dark ? 23 : 242;
+    this.fallbackPixels[1] = dark ? 22 : 234;
+    this.fallbackPixels[2] = dark ? 21 : 215;
+    this.fallbackTexture.needsUpdate = true;
   }
 
   public setPageLighting(
@@ -226,6 +243,7 @@ export class BookRenderer {
     this.turnMotionListener = null;
     this.turningSheet.dispose();
     this.fallbackTexture.dispose();
+    for (const texture of this.ownedTextures) texture.dispose();
     for (const geometry of this.staticGeometries) geometry.dispose();
     for (const material of this.staticMaterials) material.dispose();
   }
@@ -484,5 +502,10 @@ export class BookRenderer {
   private trackMaterial<T extends THREE.Material>(material: T): T {
     this.staticMaterials.push(material);
     return material;
+  }
+
+  private trackTexture<T extends THREE.Texture>(texture: T): T {
+    this.ownedTextures.push(texture);
+    return texture;
   }
 }
