@@ -3,7 +3,7 @@ import { createSampleBookDocument } from '../document/SampleBook';
 import { importTxt } from '../import/TxtImporter';
 import { InputController } from '../input/InputController';
 import { SelectionGuard } from '../input/SelectionGuard';
-import type { TypographySettings } from '../pagination/types';
+import type { PageTheme, TypographySettings } from '../pagination/types';
 import { FrameMetrics } from '../performance/FrameMetrics';
 import { PerformanceGovernor } from '../performance/PerformanceGovernor';
 import { ReadingSession, type ReadingProgressSnapshot } from '../reader/ReadingSession';
@@ -102,6 +102,7 @@ export class App {
     this.controls = new ReaderControls(this.shell, this.session.typography, {
       onImport: this.handleImport,
       onTypography: this.handleTypography,
+      onPageTheme: this.handlePageTheme,
       onToggleBookmark: this.handleToggleBookmark,
       onFocusMode: this.handleFocusMode,
       onAudioEnabled: this.handleAudioEnabled
@@ -109,7 +110,10 @@ export class App {
 
     this.session.setStateListener((state) => {
       this.controls.setState(state);
-      if (!state.busy) void this.refreshBookmark();
+      if (!state.busy) {
+        this.controls.setPageTheme(this.session.typography.pageTheme);
+        void this.refreshBookmark();
+      }
     });
     this.session.setProgressListener(this.handleProgress);
 
@@ -236,6 +240,10 @@ export class App {
     this.metrics.reset();
     this.scheduler.resetTiming();
     this.scheduler.invalidate();
+  };
+
+  private readonly handlePageTheme = async (theme: PageTheme): Promise<void> => {
+    await this.handleTypography({ pageTheme: theme });
   };
 
   private readonly handleToggleBookmark = async (): Promise<boolean> => {
