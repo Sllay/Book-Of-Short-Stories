@@ -1,10 +1,12 @@
 import type { PageTheme, TypographySettings } from '../pagination/types';
+import type { PdfViewMode } from '../pdf/PdfTypes';
 import type { ReadingSessionState } from '../reader/ReadingSession';
 
 interface ReaderControlsCallbacks {
   readonly onImport: (file: File) => Promise<void>;
   readonly onTypography: (patch: Partial<TypographySettings>) => Promise<void>;
   readonly onPageTheme: (theme: PageTheme) => Promise<void> | void;
+  readonly onPdfMode: (mode: PdfViewMode) => Promise<PdfViewMode>;
   readonly onToggleBookmark: () => Promise<boolean>;
   readonly onFocusMode: (enabled: boolean) => Promise<void> | void;
   readonly onAudioEnabled: (enabled: boolean) => Promise<void> | void;
@@ -15,6 +17,7 @@ export class ReaderControls {
   private readonly drawer = document.createElement('div');
   private readonly drawerToggle = document.createElement('button');
   private readonly importButton = document.createElement('button');
+  private readonly pdfModeButton = document.createElement('button');
   private readonly typeButton = document.createElement('button');
   private readonly themeButton = document.createElement('button');
   private readonly bookmarkButton = document.createElement('button');
@@ -28,6 +31,7 @@ export class ReaderControls {
   private focusEnabled = false;
   private audioEnabled = true;
   private pageTheme: PageTheme;
+  private pdfMode: PdfViewMode | null = null;
   private drawerOpen = false;
   private fixedLayout = false;
 
@@ -43,6 +47,11 @@ export class ReaderControls {
     this.importButton.className = 'reader-tool-button';
     this.importButton.textContent = '📖 TXT/PDF';
     this.importButton.title = 'Abrir livro TXT ou PDF';
+
+    this.pdfModeButton.type = 'button';
+    this.pdfModeButton.className = 'reader-tool-button';
+    this.pdfModeButton.hidden = true;
+    this.pdfModeButton.setAttribute('aria-label', 'Alternar modo do PDF');
 
     this.typeButton.type = 'button';
     this.typeButton.className = 'reader-tool-button';
@@ -81,7 +90,15 @@ export class ReaderControls {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'reader-toolbar';
-    toolbar.append(this.importButton, this.typeButton, this.themeButton, this.bookmarkButton, this.focusButton, this.audioButton);
+    toolbar.append(
+      this.importButton,
+      this.pdfModeButton,
+      this.typeButton,
+      this.themeButton,
+      this.bookmarkButton,
+      this.focusButton,
+      this.audioButton
+    );
 
     this.drawer.className = 'reader-drawer';
     this.drawer.append(toolbar, this.drawerToggle);
@@ -98,6 +115,7 @@ export class ReaderControls {
     host.append(this.root);
 
     this.importButton.addEventListener('click', this.openFilePicker);
+    this.pdfModeButton.addEventListener('click', this.togglePdfMode);
     this.fileInput.addEventListener('change', this.handleFileSelected);
     this.typeButton.addEventListener('click', this.toggleTypographyPanel);
     this.themeButton.addEventListener('click', this.togglePageTheme);
@@ -111,14 +129,21 @@ export class ReaderControls {
 
   public setState(state: ReadingSessionState): void {
     this.fixedLayout = state.fixedLayout;
+    this.pdfMode = state.pdfMode;
+    const pdfOpen = state.pdfMode !== null;
+    const customizable = !pdfOpen || state.pdfMode === 'reader';
+
     this.importButton.disabled = state.busy;
-    this.typeButton.disabled = state.busy || state.fixedLayout;
-    this.themeButton.disabled = state.busy || state.fixedLayout;
+    this.pdfModeButton.hidden = !pdfOpen;
+    this.pdfModeButton.disabled = state.busy || !pdfOpen;
+    this.typeButton.disabled = state.busy || !customizable;
+    this.themeButton.disabled = state.busy || !customizable;
     this.bookmarkButton.disabled = state.busy;
-    this.typeButton.title = state.fixedLayout ? 'PDF preserva o layout e a tipografia originais' : 'Tipografia';
+    this.typeButton.title = customizable ? 'Tipografia' : 'Use Reader Mode para alterar a tipografia do PDF';
+    this.updatePdfModeButton();
     this.setPageTheme(this.pageTheme);
 
-    if (state.fixedLayout && !this.panel.hidden) {
+    if (!customizable && !this.panel.hidden) {
       this.panel.hidden = true;
       this.typeButton.classList.remove('is-active');
     }
@@ -153,7 +178,7 @@ export class ReaderControls {
     if (this.fixedLayout) {
       this.themeButton.classList.remove('is-active');
       this.themeButton.textContent = '◧';
-      this.themeButton.title = 'PDF preserva as cores originais';
+      this.themeButton.title = 'PDF Original preserva as cores da página';
       this.themeButton.setAttribute('aria-label', this.themeButton.title);
       this.themeButton.setAttribute('aria-pressed', 'false');
       return;
@@ -168,17 +193,18 @@ export class ReaderControls {
   }
 
   public showError(message: string): void {
-    this.showStatus(message, 'error', 3400);
+    this.showStatus(message, 'error', 3900);
   }
 
   public showMessage(message: string): void {
-    this.showStatus(message, 'message', 2300);
+    this.showStatus(message, 'message', 2600);
   }
 
   public destroy(): void {
     if (this.debounceTimer !== null) window.clearTimeout(this.debounceTimer);
     if (this.statusTimer !== null) window.clearTimeout(this.statusTimer);
     this.importButton.removeEventListener('click', this.openFilePicker);
+    this.pdfModeButton.removeEventListener('click', this.togglePdfMode);
     this.fileInput.removeEventListener('change', this.handleFileSelected);
     this.typeButton.removeEventListener('click', this.toggleTypographyPanel);
     this.themeButton.removeEventListener('click', this.togglePageTheme);
@@ -201,9 +227,9 @@ export class ReaderControls {
     }
     font.addEventListener('change', () => this.applyTypography({ fontFamily: font.value }));
 
-    const fontSize = this.createRange(settings.fontSize, 20, 38, 1, (value) => ({ fontSize: value }));
-    const lineHeight = this.createRange(settings.lineHeight, 1.2, 1.8, 0.05, (value) => ({ lineHeight: value }));
-    const margin = this.createRange(settings.marginX, 58, 128, 2, (value) => ({ marginX: value }));
+    const fontSize = this.createRange(settings.fontSize, 20, 42, 1, (value) => ({ fontSize: value }));
+    const lineHeight = this.createRange(settings.lineHeight, 1.2, 1.9, 0.05, (value) => ({ lineHeight: value }));
+    const margin = this.createRange(settings.marginX, 48, 140, 2, (value) => ({ marginX: value }));
     const pageNumberScale = this.createRange(settings.pageNumberScale ?? 1, 0.65, 2.25, 0.05, (value) => ({ pageNumberScale: value }));
     const pageTurnTranslucency = this.createToggle(
       settings.pageTurnTranslucency ?? false,
@@ -320,6 +346,24 @@ export class ReaderControls {
     }
   }
 
+  private updatePdfModeButton(): void {
+    if (!this.pdfMode) {
+      this.pdfModeButton.hidden = true;
+      this.pdfModeButton.classList.remove('is-active');
+      return;
+    }
+
+    this.pdfModeButton.hidden = false;
+    const reader = this.pdfMode === 'reader';
+    this.pdfModeButton.classList.toggle('is-active', reader);
+    this.pdfModeButton.textContent = reader ? 'PDF' : 'Aa+';
+    this.pdfModeButton.title = reader
+      ? 'Mudar para PDF Original'
+      : 'Extrair o texto e usar Reader Mode';
+    this.pdfModeButton.setAttribute('aria-label', this.pdfModeButton.title);
+    this.pdfModeButton.setAttribute('aria-pressed', String(reader));
+  }
+
   private showStatus(message: string, kind: 'busy' | 'error' | 'message', durationMs: number): void {
     if (this.statusTimer !== null) {
       window.clearTimeout(this.statusTimer);
@@ -381,6 +425,31 @@ export class ReaderControls {
       this.setPageTheme(previous);
       this.showError(error instanceof Error ? error.message : 'Não foi possível alterar a cor do papel.');
     });
+  };
+
+  private readonly togglePdfMode = (): void => {
+    if (!this.pdfMode) return;
+    const previous = this.pdfMode;
+    const requested: PdfViewMode = previous === 'reader' ? 'original' : 'reader';
+    this.pdfModeButton.disabled = true;
+    void this.callbacks.onPdfMode(requested)
+      .then((actualMode) => {
+        this.pdfMode = actualMode;
+        this.updatePdfModeButton();
+        if (actualMode !== requested) {
+          this.showMessage('Sem texto extraível: mantendo PDF Original');
+        } else {
+          this.showMessage(actualMode === 'reader' ? 'Reader Mode ativado' : 'PDF Original ativado');
+        }
+      })
+      .catch((error: unknown) => {
+        this.pdfMode = previous;
+        this.updatePdfModeButton();
+        this.showError(error instanceof Error ? error.message : 'Não foi possível trocar o modo do PDF.');
+      })
+      .finally(() => {
+        this.pdfModeButton.disabled = false;
+      });
   };
 
   private readonly toggleBookmark = (): void => {

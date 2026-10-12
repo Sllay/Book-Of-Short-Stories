@@ -1,4 +1,4 @@
-import type { BookDocument, BookTextBlock, LogicalAnchor } from '../document/BookDocument';
+import type { BookDocument, BookTextBlock, LogicalAnchor, TextAlignment } from '../document/BookDocument';
 import { PageMap } from './PageMap';
 import {
   PAGE_LOGICAL_HEIGHT,
@@ -73,10 +73,18 @@ export class PaginationEngine {
         const fontSize = isHeading ? Math.round(settings.fontSize * 1.24) : settings.fontSize;
         const fontWeight: 400 | 600 = isHeading ? 600 : 400;
         const lineHeightPx = fontSize * (isHeading ? 1.34 : settings.lineHeight);
-        const spacingAfter = isHeading ? settings.paragraphSpacing * 1.35 : settings.paragraphSpacing;
+        const defaultSpacingAfter = isHeading ? settings.paragraphSpacing * 1.35 : settings.paragraphSpacing;
+        const spacingBefore = Math.max(0, block.spacingBefore ?? 0);
+        const spacingAfter = Math.max(0, block.spacingAfter ?? defaultSpacingAfter);
+        const align = block.align ?? 'left';
 
         this.context.font = `${fontWeight} ${fontSize}px ${settings.fontFamily}`;
         const wrapped = this.wrapBlock(block, contentWidth);
+
+        if (currentLines.length > 0 && spacingBefore > 0) {
+          if (currentY + spacingBefore + lineHeightPx > bottomLimit) commitPage();
+          else currentY += spacingBefore;
+        }
 
         // Avoid leaving a heading stranded as the final line of a page when possible.
         if (isHeading && currentLines.length > 0 && currentY + lineHeightPx * Math.min(2, wrapped.length) > bottomLimit) {
@@ -85,15 +93,17 @@ export class PaginationEngine {
 
         for (const line of wrapped) {
           if (currentLines.length > 0 && currentY + lineHeightPx > bottomLimit) commitPage();
+          const measuredWidth = this.context.measureText(line.text).width;
 
           currentLines.push({
             chapterId: chapter.id,
             blockId: block.id,
             kind: block.kind,
+            align,
             text: line.text,
             startOffset: line.startOffset,
             endOffset: line.endOffset,
-            x: settings.marginX,
+            x: this.alignedX(align, measuredWidth, contentWidth, settings.marginX),
             baselineY: currentY + fontSize,
             fontSize,
             fontWeight
@@ -104,8 +114,8 @@ export class PaginationEngine {
         currentY += spacingAfter;
         processedBlocks += 1;
 
-        // Yield periodically so large TXT files cannot monopolize the main thread for
-        // the complete pagination pass. Worker pagination remains a later optimization.
+        // Yield periodically so large documents cannot monopolize the main thread for
+        // the complete pagination pass. PDF parsing itself already lives in PDF.js' worker.
         if (processedBlocks % 12 === 0) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
@@ -127,6 +137,12 @@ export class PaginationEngine {
     }
 
     return { pages, pageMap: new PageMap(pages) };
+  }
+
+  private alignedX(align: TextAlignment, lineWidth: number, contentWidth: number, marginX: number): number {
+    if (align === 'center') return marginX + Math.max(0, (contentWidth - lineWidth) * 0.5);
+    if (align === 'right') return marginX + Math.max(0, contentWidth - lineWidth);
+    return marginX;
   }
 
   private wrapBlock(block: BookTextBlock, maxWidth: number): WrappedLine[] {
@@ -177,8 +193,6 @@ export class PaginationEngine {
         continue;
       }
 
-      // URLs, hashes and other unbroken tokens can be wider than the page. Split them
-      // only as much as necessary while keeping offsets anchored to the original text.
       let segmentStart = tokenStart;
       let segmentEnd = tokenStart;
       for (const character of Array.from(token)) {

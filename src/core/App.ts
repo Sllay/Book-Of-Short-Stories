@@ -7,6 +7,7 @@ import type { PageTheme, TypographySettings } from '../pagination/types';
 import { FrameMetrics } from '../performance/FrameMetrics';
 import { PerformanceGovernor } from '../performance/PerformanceGovernor';
 import { createPdfBookId } from '../pdf/PdfDocumentLoader';
+import type { PdfViewMode } from '../pdf/PdfTypes';
 import { ReadingSession, type ReadingProgressSnapshot } from '../reader/ReadingSession';
 import { ReaderRenderer } from '../render/ReaderRenderer';
 import { RenderScheduler } from '../runtime/RenderScheduler';
@@ -54,7 +55,7 @@ export class App {
 
     const label = document.createElement('div');
     label.className = 'foundation-label';
-    label.textContent = 'V2.1 • TXT + PDF';
+    label.textContent = 'V2.1.1 • PDF Original + Reader';
 
     const hint = document.createElement('div');
     hint.className = 'interaction-hint';
@@ -105,6 +106,7 @@ export class App {
       onImport: this.handleImport,
       onTypography: this.handleTypography,
       onPageTheme: this.handlePageTheme,
+      onPdfMode: this.handlePdfMode,
       onToggleBookmark: this.handleToggleBookmark,
       onFocusMode: this.handleFocusMode,
       onAudioEnabled: this.handleAudioEnabled
@@ -187,11 +189,12 @@ export class App {
         this.persistedBookId = recent.book.id;
         const progress = await this.storage.getProgress(recent.book.id);
         const bytes = new Uint8Array(await recent.source.arrayBuffer());
-        await this.session.openPdfSource(recent.book.sourceName, bytes, {
+        const publication = await this.session.openPdfSource(recent.book.sourceName, bytes, {
           anchor: progress?.anchor,
-          typography: progress?.typography
+          typography: progress?.typography,
+          pdfMode: progress?.pdfMode ?? 'reader'
         }, recent.book.id);
-        this.controls.showMessage(`${recent.book.title} • PDF restaurado do dispositivo`);
+        this.controls.showMessage(`${recent.book.title} • ${publication.mode === 'reader' ? 'Reader Mode' : 'PDF Original'} restaurado`);
       } else {
         if (recent) {
           this.controls.showMessage(`${sourceTypeLabel(recent.book.sourceType)} salvo localmente • suporte entra em uma próxima versão`);
@@ -237,7 +240,8 @@ export class App {
       const previousProgress = await this.storage.getProgress(bookId);
       const publication = await this.session.openPdfSource(file.name, bytes, {
         anchor: previousProgress?.anchor,
-        typography: previousProgress?.typography
+        typography: previousProgress?.typography,
+        pdfMode: previousProgress?.pdfMode ?? 'reader'
       }, bookId);
 
       await this.storage.saveBookSource({
@@ -248,7 +252,11 @@ export class App {
         mimeType: file.type || 'application/pdf'
       }, file);
       this.persistedBookId = publication.id;
-      this.controls.showMessage(`${publication.title} • ${publication.pageCount} páginas`);
+      this.controls.showMessage(
+        publication.mode === 'reader'
+          ? `${publication.title} • Reader Mode • ${publication.pageCount} páginas`
+          : `${publication.title} • PDF Original • ${publication.pageCount} páginas`
+      );
     } else if (sourceType === 'epub') {
       throw new Error('EPUB foi reconhecido, mas entra depois do PDF na V2.x.');
     } else {
@@ -272,6 +280,16 @@ export class App {
 
   private readonly handlePageTheme = async (theme: PageTheme): Promise<void> => {
     await this.handleTypography({ pageTheme: theme });
+  };
+
+  private readonly handlePdfMode = async (mode: PdfViewMode): Promise<PdfViewMode> => {
+    const actualMode = await this.session.setPdfMode(mode);
+    await this.persistCurrentProgress();
+    await this.refreshBookmark();
+    this.metrics.reset();
+    this.scheduler.resetTiming();
+    this.scheduler.invalidate();
+    return actualMode;
   };
 
   private readonly handleToggleBookmark = async (): Promise<boolean> => {
