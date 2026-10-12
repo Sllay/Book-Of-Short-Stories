@@ -46,6 +46,7 @@ export class ReadingSession {
       this.emitState();
       this.emitProgress();
     });
+    this.renderer.setPageTurnTranslucency(this.typographyState.pageTurnTranslucency);
   }
 
   public get typography(): TypographySettings { return this.typographyState; }
@@ -94,10 +95,11 @@ export class ReadingSession {
   ): Promise<void> {
     const generation = ++this.generation;
     const previousTypography = this.typographyState;
-    // Old V1.4 progress snapshots do not contain pageNumberScale. Merge persisted
+    // Old V1.4 snapshots may not contain newer visual settings. Merge persisted
     // values over current defaults so migrations remain transparent.
     if (typography) this.typographyState = { ...DEFAULT_TYPOGRAPHY, ...typography };
     const settings = this.typographyState;
+    this.renderer.setPageTurnTranslucency(settings.pageTurnTranslucency);
     this.setBusy(true, 'Paginando livro…');
 
     try {
@@ -121,7 +123,10 @@ export class ReadingSession {
       this.emitProgress();
     } catch (error: unknown) {
       if (generation === this.generation) {
-        if (typography) this.typographyState = previousTypography;
+        if (typography) {
+          this.typographyState = previousTypography;
+          this.renderer.setPageTurnTranslucency(previousTypography.pageTurnTranslucency);
+        }
         this.setBusy(false, 'Falha ao paginar');
       }
       throw error;
@@ -137,15 +142,24 @@ export class ReadingSession {
     const nextSettings: TypographySettings = { ...DEFAULT_TYPOGRAPHY, ...previousSettings, ...patch };
     this.typographyState = nextSettings;
 
-    // Page-number size changes only the already-generated page texture footer. Avoid
-    // a full pagination pass on every slider movement; rebuild just the small LRU
-    // texture cache while preserving the exact spread and logical progress.
+    if ('pageTurnTranslucency' in patch) {
+      this.renderer.setPageTurnTranslucency(nextSettings.pageTurnTranslucency);
+    }
+
+    // Footer scale and page-turn translucency do not affect text layout. Handle them
+    // without a full pagination pass; rebuild page textures only when the number size
+    // itself changed.
     const patchKeys = Object.keys(patch) as Array<keyof TypographySettings>;
-    const textureOnlyChange = patchKeys.length > 0 && patchKeys.every((key) => key === 'pageNumberScale');
-    if (textureOnlyChange && this.pages.length > 0) {
-      const cache = new PageTextureCache(this.pages, nextSettings);
-      this.renderer.setPublication(cache, this.currentLeftPage);
-      cache.warmAround(this.currentLeftPage);
+    const visualOnlyChange = patchKeys.length > 0 && patchKeys.every(
+      (key) => key === 'pageNumberScale' || key === 'pageTurnTranslucency'
+    );
+
+    if (visualOnlyChange) {
+      if ('pageNumberScale' in patch && this.pages.length > 0) {
+        const cache = new PageTextureCache(this.pages, nextSettings);
+        this.renderer.setPublication(cache, this.currentLeftPage);
+        cache.warmAround(this.currentLeftPage);
+      }
       this.emitProgress();
       return;
     }
@@ -153,7 +167,10 @@ export class ReadingSession {
     try {
       await this.loadDocument(documentModel, anchor);
     } catch (error: unknown) {
-      if (this.typographyState === nextSettings) this.typographyState = previousSettings;
+      if (this.typographyState === nextSettings) {
+        this.typographyState = previousSettings;
+        this.renderer.setPageTurnTranslucency(previousSettings.pageTurnTranslucency);
+      }
       throw error;
     }
   }

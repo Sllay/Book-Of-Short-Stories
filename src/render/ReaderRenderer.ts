@@ -58,6 +58,10 @@ export class ReaderRenderer {
     this.book.setReducedMotion(enabled);
   }
 
+  public setPageTurnTranslucency(enabled: boolean): void {
+    this.book.setPageTurnTranslucency(enabled);
+  }
+
   public setFocusMode(enabled: boolean): void {
     this.world.setFocusMode(enabled);
   }

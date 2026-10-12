@@ -114,7 +114,7 @@ export class ReaderControls {
   public setBookmarked(bookmarked: boolean): void {
     this.bookmarkButton.textContent = bookmarked ? '🔖' : '☆';
     this.bookmarkButton.classList.toggle('is-active', bookmarked);
-    this.bookmarkButton.title = bookmarked ? 'Remover bookmark desta página' : 'Adicionar bookmark nesta página';
+    this.bookmarkButton.title = bookmarked ? 'Remover bookmark desta página' : 'Adicionar bookmark desta página';
   }
 
   public setFocusMode(enabled: boolean): void {
@@ -166,6 +166,10 @@ export class ReaderControls {
     const lineHeight = this.createRange(settings.lineHeight, 1.2, 1.8, 0.05, (value) => ({ lineHeight: value }));
     const margin = this.createRange(settings.marginX, 58, 128, 2, (value) => ({ marginX: value }));
     const pageNumberScale = this.createRange(settings.pageNumberScale ?? 1, 0.65, 2.25, 0.05, (value) => ({ pageNumberScale: value }));
+    const pageTurnTranslucency = this.createToggle(
+      settings.pageTurnTranslucency ?? false,
+      (checked) => ({ pageTurnTranslucency: checked })
+    );
 
     const paper = document.createElement('select');
     paper.className = 'reader-select';
@@ -190,6 +194,7 @@ export class ReaderControls {
       this.createField('Entrelinhas', lineHeight),
       this.createField('Margens', margin),
       this.createField('Numeração', pageNumberScale),
+      this.createField('Translucidez', pageTurnTranslucency),
       this.createField('Papel', paper)
     );
   }
@@ -216,6 +221,34 @@ export class ReaderControls {
       }, 220);
     });
     return input;
+  }
+
+  private createToggle(
+    checked: boolean,
+    createPatch: (checked: boolean) => Partial<TypographySettings>
+  ): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'reader-toggle';
+    button.setAttribute('role', 'switch');
+    button.setAttribute('aria-label', 'Translucidez da folha durante a virada');
+
+    const knob = document.createElement('span');
+    knob.className = 'reader-toggle-knob';
+    button.append(knob);
+
+    const setChecked = (value: boolean): void => {
+      button.classList.toggle('is-checked', value);
+      button.setAttribute('aria-checked', String(value));
+    };
+
+    setChecked(checked);
+    button.addEventListener('click', () => {
+      const next = button.getAttribute('aria-checked') !== 'true';
+      setChecked(next);
+      this.applyTypography(createPatch(next));
+    });
+    return button;
   }
 
   private createField(labelText: string, control: HTMLElement): HTMLElement {
