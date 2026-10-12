@@ -1,5 +1,6 @@
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import './PdfSafariCompat';
+import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -19,8 +20,6 @@ export async function createPdfBookId(data: Uint8Array): Promise<string> {
     return `pdf-${hex.slice(0, 32)}`;
   }
 
-  // Deterministic fallback for older embedded browsers. It samples the whole file
-  // without retaining a second large allocation in memory.
   let hashA = 2166136261 >>> 0;
   let hashB = 2246822519 >>> 0;
   for (let index = 0; index < data.length; index += 1) {
