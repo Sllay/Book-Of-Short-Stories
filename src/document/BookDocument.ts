@@ -1,4 +1,5 @@
 export type BookBlockKind = 'heading' | 'paragraph';
+export type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
 export interface BookMetadata {
   readonly title: string;
@@ -11,6 +12,9 @@ export interface BookTextBlock {
   readonly id: string;
   readonly kind: BookBlockKind;
   readonly text: string;
+  readonly align?: TextAlignment;
+  readonly spacingBefore?: number;
+  readonly spacingAfter?: number;
 }
 
 export interface BookChapter {
