@@ -9,6 +9,7 @@ export interface TypographySettings {
   readonly marginBottom: number;
   readonly paragraphSpacing: number;
   readonly pageNumberScale: number;
+  readonly pageTurnTranslucency: boolean;
   readonly paperTone: string;
   readonly inkTone: string;
 }
@@ -45,6 +46,7 @@ export const DEFAULT_TYPOGRAPHY: TypographySettings = {
   marginBottom: 90,
   paragraphSpacing: 18,
   pageNumberScale: 1,
+  pageTurnTranslucency: false,
   paperTone: '#f2ead7',
   inkTone: '#40362d'
 };
