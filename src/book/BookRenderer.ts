@@ -101,11 +101,10 @@ export class BookRenderer {
     rightPage.position.set(PAGE_WIDTH / 2, 0, 0.027);
     this.root.add(rightPage);
 
-    const gutterMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0xb9aa91, transparent: true, opacity: 0.42 }));
-    const gutterGeometry = this.trackGeometry(new THREE.PlaneGeometry(0.055, PAGE_HEIGHT * 0.985));
-    const gutter = new THREE.Mesh(gutterGeometry, gutterMaterial);
-    gutter.position.z = 0.045;
-    this.root.add(gutter);
+    // Do not draw a separate center strip. The old unlit beige gutter was rendered
+    // above both pages and therefore stayed bright at night, reading like a glowing
+    // line. The meeting edges of the two real page surfaces already create the spine;
+    // keeping only those surfaces guarantees the center follows the same lighting.
 
     this.turningSheet = new PageCurlSheet(PAGE_WIDTH, PAGE_HEIGHT, this.fallbackTexture, this.fallbackTexture);
     this.turningSheet.mesh.position.z = 0.055;
