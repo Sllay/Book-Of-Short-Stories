@@ -36,6 +36,7 @@ export class App {
   private lastPointerX = 0;
   private lastPointerY = 0;
   private pointerIsDown = false;
+  private focusModeEnabled = false;
   private started = false;
   private persistedBookId: string | null = null;
   private progressSaveTimer: number | null = null;
@@ -78,7 +79,7 @@ export class App {
       if (!stillInteracting && !this.pointerIsDown && this.scheduler.currentMode === 'interactive') {
         this.shell.classList.remove('is-interacting');
         this.governor.endCriticalInteraction();
-        this.scheduler.setMode('static');
+        this.scheduler.setMode(this.idleRenderMode());
         this.metrics.reset();
       }
     });
@@ -128,7 +129,7 @@ export class App {
     if (this.started) return;
     this.started = true;
     this.resize();
-    this.scheduler.setMode(document.hidden ? 'hidden' : 'static');
+    this.scheduler.setMode(document.hidden ? 'hidden' : this.idleRenderMode());
     this.scheduler.invalidate();
     void this.bootstrap();
   }
@@ -254,9 +255,14 @@ export class App {
   };
 
   private applyFocusMode(enabled: boolean): void {
+    this.focusModeEnabled = enabled;
     this.shell.classList.toggle('focus-mode', enabled);
     this.renderer.setFocusMode(enabled);
     this.controls.setFocusMode(enabled);
+
+    if (!document.hidden && !this.pointerIsDown && this.scheduler.currentMode !== 'interactive') {
+      this.scheduler.setMode(this.idleRenderMode());
+    }
     this.scheduler.invalidate();
   }
 
@@ -312,7 +318,7 @@ export class App {
       this.scheduler.setMode('interactive');
     } else if (!pointer.isDown) {
       this.governor.endCriticalInteraction();
-      this.scheduler.setMode('static');
+      this.scheduler.setMode(this.idleRenderMode());
       this.metrics.reset();
     }
 
@@ -340,7 +346,7 @@ export class App {
     this.audio.setHidden(false);
     this.governor.resetAfterViewportChange();
     this.scheduler.resetTiming();
-    this.scheduler.setMode('static');
+    this.scheduler.setMode(this.idleRenderMode());
     this.scheduler.invalidate();
   };
 
@@ -368,6 +374,10 @@ export class App {
     this.renderer.resize(rect.width, rect.height);
     this.scheduler.invalidate();
   };
+
+  private idleRenderMode(): 'static' | 'ambient' {
+    return this.focusModeEnabled || this.reducedMotionQuery.matches ? 'static' : 'ambient';
+  }
 
   private updateDebug(stats = this.metrics.snapshot()): void {
     this.debugHud.update({
