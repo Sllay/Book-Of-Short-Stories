@@ -1,77 +1,136 @@
 import * as THREE from 'three';
+import { createPaperMaterial } from './PaperMaterial';
 
+interface CurlUniforms {
+  readonly uProgress: { value: number };
+  readonly uGrabX: { value: number };
+  readonly uGrabY: { value: number };
+  readonly uTwist: { value: number };
+  readonly uDragAmount: { value: number };
+  readonly uWidth: { value: number };
+  readonly uHeight: { value: number };
+}
+
+/**
+ * A page that deforms in the vertex shader while keeping the exact same
+ * MeshStandardMaterial pipeline as the resting pages.
+ *
+ * Important: normals intentionally remain flat. That means page curl changes only
+ * geometry, never the paper's global lighting response. The active sheet therefore
+ * cannot become a bright/highlighted foreign object while it is being dragged.
+ */
 export class PageCurlSheet {
-  public readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  public readonly mesh = new THREE.Group();
 
-  private readonly uniforms: {
-    uFrontMap: { value: THREE.Texture };
-    uBackMap: { value: THREE.Texture };
-    uProgress: { value: number };
-    uGrabX: { value: number };
-    uGrabY: { value: number };
-    uTwist: { value: number };
-    uDragAmount: { value: number };
-    uWidth: { value: number };
-    uHeight: { value: number };
-    uAmbientColor: { value: THREE.Color };
-    uKeyColor: { value: THREE.Color };
-    uKeyDirectionWorld: { value: THREE.Vector3 };
-    uAmbientStrength: { value: number };
-    uKeyStrength: { value: number };
-  };
+  private readonly frontGeometry: THREE.PlaneGeometry;
+  private readonly backGeometry: THREE.PlaneGeometry;
+  private readonly frontMaterial: THREE.MeshStandardMaterial;
+  private readonly backMaterial: THREE.MeshStandardMaterial;
+  private readonly uniforms: CurlUniforms;
 
   public constructor(width: number, height: number, front: THREE.Texture, back: THREE.Texture) {
-    const geometry = new THREE.PlaneGeometry(width, height, 44, 30);
-    geometry.translate(width / 2, 0, 0);
-
     this.uniforms = {
-      uFrontMap: { value: front },
-      uBackMap: { value: back },
       uProgress: { value: 0 },
       uGrabX: { value: 0.9 },
       uGrabY: { value: 0.5 },
       uTwist: { value: 0 },
       uDragAmount: { value: 0 },
       uWidth: { value: width },
-      uHeight: { value: height },
-      uAmbientColor: { value: new THREE.Color(0xfff0d8) },
-      uKeyColor: { value: new THREE.Color(0xffd6a4) },
-      uKeyDirectionWorld: { value: new THREE.Vector3(0.35, -0.2, 0.92).normalize() },
-      uAmbientStrength: { value: 0.6 },
-      uKeyStrength: { value: 0.3 }
+      uHeight: { value: height }
     };
 
-    const material = new THREE.ShaderMaterial({
-      uniforms: this.uniforms,
-      side: THREE.DoubleSide,
-      transparent: false,
-      depthTest: true,
-      depthWrite: true,
-      blending: THREE.NoBlending,
-      vertexShader: `
-        uniform float uProgress;
-        uniform float uGrabX;
-        uniform float uGrabY;
-        uniform float uTwist;
-        uniform float uDragAmount;
-        uniform float uWidth;
-        uniform float uHeight;
+    this.frontGeometry = new THREE.PlaneGeometry(width, height, 44, 30);
+    this.frontGeometry.translate(width / 2, 0, 0);
 
-        varying vec2 vUv;
-        varying float vCurve;
-        varying float vTurn;
-        varying float vWrinkle;
-        varying float vGrabInfluence;
-        varying vec3 vWorldPosition;
+    // The back uses its own tiny vertex/UV buffer so we can mirror the printed page
+    // without cloning the 1536x2048 page texture (important on mobile GPU memory).
+    this.backGeometry = this.frontGeometry.clone();
+    const backUv = this.backGeometry.getAttribute('uv');
+    for (let index = 0; index < backUv.count; index += 1) {
+      backUv.setX(index, 1 - backUv.getX(index));
+    }
+    backUv.needsUpdate = true;
 
-        const float PI = 3.141592653589793;
+    // BackSide materials invert the vertex normal internally. Pre-inverting this
+    // geometry cancels that behavior so both paper faces receive the same global
+    // room illumination as the stationary pages.
+    const backNormal = this.backGeometry.getAttribute('normal');
+    for (let index = 0; index < backNormal.count; index += 1) {
+      backNormal.setXYZ(
+        index,
+        -backNormal.getX(index),
+        -backNormal.getY(index),
+        -backNormal.getZ(index)
+      );
+    }
+    backNormal.needsUpdate = true;
 
-        void main() {
-          vUv = uv;
-          vec3 p = position;
+    this.frontMaterial = createPaperMaterial(front, THREE.FrontSide);
+    this.backMaterial = createPaperMaterial(back, THREE.BackSide);
+    this.installCurlDeformation(this.frontMaterial);
+    this.installCurlDeformation(this.backMaterial);
 
-          float pageU = clamp(p.x / uWidth, 0.0, 1.0);
-          float pageV = clamp((p.y / uHeight) + 0.5, 0.0, 1.0);
+    const frontMesh = new THREE.Mesh(this.frontGeometry, this.frontMaterial);
+    const backMesh = new THREE.Mesh(this.backGeometry, this.backMaterial);
+    frontMesh.renderOrder = 5;
+    backMesh.renderOrder = 5;
+    this.mesh.add(frontMesh, backMesh);
+  }
+
+  public setTextures(front: THREE.Texture, back: THREE.Texture): void {
+    // Maps stay non-null for the whole lifetime, so swapping them does not require a
+    // shader recompile. This keeps page turns cheap while preserving material parity.
+    this.frontMaterial.map = front;
+    this.backMaterial.map = back;
+  }
+
+  public setProgress(progress: number): void {
+    this.uniforms.uProgress.value = THREE.MathUtils.clamp(progress, 0, 1);
+  }
+
+  public setGrabPoint(grabX: number, grabY: number): void {
+    this.uniforms.uGrabX.value = THREE.MathUtils.clamp(grabX, 0, 1);
+    this.uniforms.uGrabY.value = THREE.MathUtils.clamp(grabY, 0, 1);
+  }
+
+  public setTwist(twist: number): void {
+    this.uniforms.uTwist.value = THREE.MathUtils.clamp(twist, -1, 1);
+  }
+
+  public setDragAmount(amount: number): void {
+    this.uniforms.uDragAmount.value = THREE.MathUtils.clamp(amount, 0, 1);
+  }
+
+  public dispose(): void {
+    this.frontGeometry.dispose();
+    this.backGeometry.dispose();
+    this.frontMaterial.dispose();
+    this.backMaterial.dispose();
+  }
+
+  private installCurlDeformation(material: THREE.MeshStandardMaterial): void {
+    material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, this.uniforms);
+
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uProgress;
+          uniform float uGrabX;
+          uniform float uGrabY;
+          uniform float uTwist;
+          uniform float uDragAmount;
+          uniform float uWidth;
+          uniform float uHeight;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `
+          vec3 transformed = vec3(position);
+
+          float pageU = clamp(transformed.x / uWidth, 0.0, 1.0);
+          float pageV = clamp((transformed.y / uHeight) + 0.5, 0.0, 1.0);
           vec2 pageUv = vec2(pageU, pageV);
           vec2 grabUv = vec2(uGrabX, uGrabY);
 
@@ -92,16 +151,13 @@ export class PageCurlSheet {
 
           float t = pageU;
           float invT = 1.0 - t;
-          float curveX = 2.0 * invT * t * controlX + t * t * edgeX;
-          float curveZ = 2.0 * invT * t * controlZ;
-
-          p.x = curveX;
-          p.z += curveZ;
+          transformed.x = 2.0 * invT * t * controlX + t * t * edgeX;
+          transformed.z += 2.0 * invT * t * controlZ;
 
           float grabBias = (uGrabY - 0.5) * 2.0;
-          p.y += grabBias * 0.055 * t * t * arc;
-          p.y += uTwist * 0.17 * t * t * arc;
-          p.z += uTwist * (pageV - uGrabY) * 0.13 * t * arc;
+          transformed.y += grabBias * 0.055 * t * t * arc;
+          transformed.y += uTwist * 0.17 * t * t * arc;
+          transformed.z += uTwist * (pageV - uGrabY) * 0.13 * t * arc;
 
           float dragEnvelope = uDragAmount * arc * smoothstep(0.06, 0.52, pageU);
           float waveA = sin(pageU * 35.0 + pageV * 21.0 + uProgress * 4.0);
@@ -111,110 +167,12 @@ export class PageCurlSheet {
           wrinkle += radial * 0.010;
           wrinkle *= dragEnvelope * (0.28 + 0.72 * grabInfluence);
 
-          p.z += wrinkle;
-          p.y += wrinkle * 0.20 * (0.35 + pageU);
+          transformed.z += wrinkle;
+          transformed.y += wrinkle * 0.20 * (0.35 + pageU);
+          `
+        );
+    };
 
-          vCurve = arc * sin(pageU * PI);
-          vTurn = localProgress;
-          vWrinkle = wrinkle / 0.022;
-          vGrabInfluence = grabInfluence;
-
-          vec4 worldPosition = modelMatrix * vec4(p, 1.0);
-          vWorldPosition = worldPosition.xyz;
-          gl_Position = projectionMatrix * viewMatrix * worldPosition;
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D uFrontMap;
-        uniform sampler2D uBackMap;
-        uniform vec3 uAmbientColor;
-        uniform vec3 uKeyColor;
-        uniform vec3 uKeyDirectionWorld;
-        uniform float uAmbientStrength;
-        uniform float uKeyStrength;
-
-        varying vec2 vUv;
-        varying float vCurve;
-        varying float vTurn;
-        varying float vWrinkle;
-        varying float vGrabInfluence;
-        varying vec3 vWorldPosition;
-
-        void main() {
-          vec2 sampleUv = gl_FrontFacing ? vUv : vec2(1.0 - vUv.x, vUv.y);
-          vec3 paper = gl_FrontFacing
-            ? texture2D(uFrontMap, sampleUv).rgb
-            : texture2D(uBackMap, sampleUv).rgb;
-
-          // Reconstruct the deformed sheet normal from the actual curled surface so the
-          // moving page receives the same room key/ambient lighting family as resting
-          // MeshStandard pages. This prevents the selected sheet from turning into a
-          // bright unlit card when the user starts dragging it.
-          vec3 normalWorld = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
-          if (!gl_FrontFacing) normalWorld *= -1.0;
-          float facingLight = max(dot(normalWorld, normalize(uKeyDirectionWorld)), 0.0);
-          float wrappedLight = 0.18 + 0.82 * facingLight;
-
-          vec3 illumination = uAmbientColor * uAmbientStrength
-            + uKeyColor * (uKeyStrength * wrappedLight);
-          illumination = clamp(illumination, vec3(0.46), vec3(1.02));
-
-          float trough = 1.0 - vCurve * 0.11;
-          float foldHighlight = 1.0 + vCurve * 0.010 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
-          float edgeTone = 0.988 + 0.008 * sin(sampleUv.x * 3.14159265);
-          float turnTone = mix(1.0, 0.976, smoothstep(0.35, 0.75, vTurn) * vCurve);
-          float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.014 * (0.35 + 0.65 * vGrabInfluence);
-
-          vec3 litPaper = paper * illumination * trough * foldHighlight * edgeTone * turnTone * wrinkleShade;
-          gl_FragColor = vec4(litPaper, 1.0);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }
-      `
-    });
-
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.renderOrder = 5;
-  }
-
-  public setTextures(front: THREE.Texture, back: THREE.Texture): void {
-    this.uniforms.uFrontMap.value = front;
-    this.uniforms.uBackMap.value = back;
-  }
-
-  public setProgress(progress: number): void {
-    this.uniforms.uProgress.value = THREE.MathUtils.clamp(progress, 0, 1);
-  }
-
-  public setGrabPoint(grabX: number, grabY: number): void {
-    this.uniforms.uGrabX.value = THREE.MathUtils.clamp(grabX, 0, 1);
-    this.uniforms.uGrabY.value = THREE.MathUtils.clamp(grabY, 0, 1);
-  }
-
-  public setTwist(twist: number): void {
-    this.uniforms.uTwist.value = THREE.MathUtils.clamp(twist, -1, 1);
-  }
-
-  public setDragAmount(amount: number): void {
-    this.uniforms.uDragAmount.value = THREE.MathUtils.clamp(amount, 0, 1);
-  }
-
-  public setLighting(
-    ambientColor: THREE.Color,
-    keyColor: THREE.Color,
-    keyDirectionWorld: THREE.Vector3,
-    ambientStrength: number,
-    keyStrength: number
-  ): void {
-    this.uniforms.uAmbientColor.value.copy(ambientColor);
-    this.uniforms.uKeyColor.value.copy(keyColor);
-    this.uniforms.uKeyDirectionWorld.value.copy(keyDirectionWorld).normalize();
-    this.uniforms.uAmbientStrength.value = THREE.MathUtils.clamp(ambientStrength, 0, 1.2);
-    this.uniforms.uKeyStrength.value = THREE.MathUtils.clamp(keyStrength, 0, 1.2);
-  }
-
-  public dispose(): void {
-    this.mesh.geometry.dispose();
-    this.mesh.material.dispose();
+    material.customProgramCacheKey = () => 'book-page-curl-standard-material-v1';
   }
 }
