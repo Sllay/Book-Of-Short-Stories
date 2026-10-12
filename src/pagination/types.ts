@@ -1,4 +1,4 @@
-import type { BookBlockKind, LogicalAnchor } from '../document/BookDocument';
+import type { BookBlockKind, LogicalAnchor, TextAlignment } from '../document/BookDocument';
 
 export type PageTheme = 'light' | 'dark';
 
@@ -21,6 +21,7 @@ export interface PageLine {
   readonly chapterId: string;
   readonly blockId: string;
   readonly kind: BookBlockKind;
+  readonly align: TextAlignment;
   readonly text: string;
   readonly startOffset: number;
   readonly endOffset: number;
