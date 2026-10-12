@@ -239,6 +239,48 @@ body { min-width: 320px; min-height: 100dvh; }
   accent-color: #d9c3a2;
 }
 
+.reader-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  justify-self: end;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  cursor: pointer;
+  outline: none;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.reader-toggle::after {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(244,234,215,.76);
+  box-shadow: 0 1px 5px rgba(0,0,0,.32);
+  transform: translateX(0);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.reader-toggle:checked {
+  background: rgba(112,82,58,.88);
+  border-color: rgba(244,234,215,.16);
+}
+
+.reader-toggle:checked::after {
+  transform: translateX(16px);
+  background: #f4ead7;
+}
+
+.reader-toggle:focus-visible {
+  box-shadow: 0 0 0 2px rgba(244,234,215,.20);
+}
+
 /* Status is now a short-lived toast, never a persistent floating book/page label. */
 .reader-status {
   position: fixed;
