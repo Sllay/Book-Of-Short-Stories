@@ -148,6 +148,7 @@ export class BookRenderer {
   }
 
   public setPageTheme(theme: PageTheme): void {
+    if (this.pageTheme === theme) return;
     this.pageTheme = theme;
     const dark = theme === 'dark';
     this.pageBlockMaterial.color.setHex(dark ? 0x2b2926 : 0xd7cdb8);
