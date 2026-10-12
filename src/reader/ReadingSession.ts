@@ -4,7 +4,7 @@ import { firstAnchor } from '../document/BookDocument';
 import { importTxt } from '../import/TxtImporter';
 import { PaginationEngine } from '../pagination/PaginationEngine';
 import type { PageMap } from '../pagination/PageMap';
-import { DEFAULT_TYPOGRAPHY, type TypographySettings } from '../pagination/types';
+import { DEFAULT_TYPOGRAPHY, type PaginatedPage, type TypographySettings } from '../pagination/types';
 import type { ReaderRenderer } from '../render/ReaderRenderer';
 
 export interface ReadingSessionState {
@@ -30,6 +30,7 @@ export class ReadingSession {
   private readonly paginator = new PaginationEngine();
   private documentModel: BookDocument | null = null;
   private pageMap: PageMap | null = null;
+  private pages: readonly PaginatedPage[] = [];
   private typographyState: TypographySettings = { ...DEFAULT_TYPOGRAPHY };
   private stateListener: ((state: ReadingSessionState) => void) | null = null;
   private progressListener: ((snapshot: ReadingProgressSnapshot) => void) | null = null;
@@ -93,7 +94,9 @@ export class ReadingSession {
   ): Promise<void> {
     const generation = ++this.generation;
     const previousTypography = this.typographyState;
-    if (typography) this.typographyState = { ...typography };
+    // Old V1.4 progress snapshots do not contain pageNumberScale. Merge persisted
+    // values over current defaults so migrations remain transparent.
+    if (typography) this.typographyState = { ...DEFAULT_TYPOGRAPHY, ...typography };
     const settings = this.typographyState;
     this.setBusy(true, 'Paginando livro…');
 
@@ -108,6 +111,7 @@ export class ReadingSession {
 
       this.documentModel = documentModel;
       this.pageMap = result.pageMap;
+      this.pages = result.pages;
       this.pageCount = result.pages.length;
       this.currentLeftPage = targetLeftPage;
       this.renderer.setPublication(cache, this.currentLeftPage);
@@ -130,8 +134,21 @@ export class ReadingSession {
     const documentModel = this.documentModel;
     const anchor = this.currentAnchor ?? firstAnchor(documentModel);
     const previousSettings = this.typographyState;
-    const nextSettings: TypographySettings = { ...previousSettings, ...patch };
+    const nextSettings: TypographySettings = { ...DEFAULT_TYPOGRAPHY, ...previousSettings, ...patch };
     this.typographyState = nextSettings;
+
+    // Page-number size changes only the already-generated page texture footer. Avoid
+    // a full pagination pass on every slider movement; rebuild just the small LRU
+    // texture cache while preserving the exact spread and logical progress.
+    const patchKeys = Object.keys(patch) as Array<keyof TypographySettings>;
+    const textureOnlyChange = patchKeys.length > 0 && patchKeys.every((key) => key === 'pageNumberScale');
+    if (textureOnlyChange && this.pages.length > 0) {
+      const cache = new PageTextureCache(this.pages, nextSettings);
+      this.renderer.setPublication(cache, this.currentLeftPage);
+      cache.warmAround(this.currentLeftPage);
+      this.emitProgress();
+      return;
+    }
 
     try {
       await this.loadDocument(documentModel, anchor);

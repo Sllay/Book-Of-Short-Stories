@@ -49,17 +49,20 @@ export function createPageTexture(
   if (typeof pageIndex === 'number') {
     const pageNumber = pageIndex + 1;
     const isLeftPage = pageIndex % 2 === 0;
-    const edgeInset = Math.max(34, settings.marginX * 0.58);
+    const numberScale = THREE.MathUtils.clamp(settings.pageNumberScale ?? 1, 0.65, 2.25);
+    const fontSize = 16 * numberScale;
+    const edgeInset = Math.max(34, settings.marginX * 0.58, fontSize * 1.7);
+    const bottomInset = Math.max(34, fontSize * 1.8);
 
     context.globalAlpha = 0.43;
     context.fillStyle = settings.inkTone;
     context.textAlign = isLeftPage ? 'left' : 'right';
     context.textBaseline = 'alphabetic';
-    context.font = `400 16px ${settings.fontFamily}`;
+    context.font = `400 ${fontSize}px ${settings.fontFamily}`;
     context.fillText(
       String(pageNumber),
       isLeftPage ? edgeInset : PAGE_LOGICAL_WIDTH - edgeInset,
-      PAGE_LOGICAL_HEIGHT - 34
+      PAGE_LOGICAL_HEIGHT - bottomInset
     );
   }
 

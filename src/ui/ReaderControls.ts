@@ -165,6 +165,7 @@ export class ReaderControls {
     const fontSize = this.createRange(settings.fontSize, 20, 38, 1, (value) => ({ fontSize: value }));
     const lineHeight = this.createRange(settings.lineHeight, 1.2, 1.8, 0.05, (value) => ({ lineHeight: value }));
     const margin = this.createRange(settings.marginX, 58, 128, 2, (value) => ({ marginX: value }));
+    const pageNumberScale = this.createRange(settings.pageNumberScale ?? 1, 0.65, 2.25, 0.05, (value) => ({ pageNumberScale: value }));
 
     const paper = document.createElement('select');
     paper.className = 'reader-select';
@@ -188,6 +189,7 @@ export class ReaderControls {
       this.createField('Tamanho', fontSize),
       this.createField('Entrelinhas', lineHeight),
       this.createField('Margens', margin),
+      this.createField('Numeração', pageNumberScale),
       this.createField('Papel', paper)
     );
   }
