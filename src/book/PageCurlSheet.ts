@@ -13,6 +13,11 @@ export class PageCurlSheet {
     uDragAmount: { value: number };
     uWidth: { value: number };
     uHeight: { value: number };
+    uAmbientColor: { value: THREE.Color };
+    uKeyColor: { value: THREE.Color };
+    uKeyDirectionWorld: { value: THREE.Vector3 };
+    uAmbientStrength: { value: number };
+    uKeyStrength: { value: number };
   };
 
   public constructor(width: number, height: number, front: THREE.Texture, back: THREE.Texture) {
@@ -28,7 +33,12 @@ export class PageCurlSheet {
       uTwist: { value: 0 },
       uDragAmount: { value: 0 },
       uWidth: { value: width },
-      uHeight: { value: height }
+      uHeight: { value: height },
+      uAmbientColor: { value: new THREE.Color(0xfff0d8) },
+      uKeyColor: { value: new THREE.Color(0xffd6a4) },
+      uKeyDirectionWorld: { value: new THREE.Vector3(0.35, -0.2, 0.92).normalize() },
+      uAmbientStrength: { value: 0.6 },
+      uKeyStrength: { value: 0.3 }
     };
 
     const material = new THREE.ShaderMaterial({
@@ -52,6 +62,7 @@ export class PageCurlSheet {
         varying float vTurn;
         varying float vWrinkle;
         varying float vGrabInfluence;
+        varying vec3 vWorldPosition;
 
         const float PI = 3.141592653589793;
 
@@ -108,18 +119,26 @@ export class PageCurlSheet {
           vWrinkle = wrinkle / 0.022;
           vGrabInfluence = grabInfluence;
 
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+          vec4 worldPosition = modelMatrix * vec4(p, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
         }
       `,
       fragmentShader: `
         uniform sampler2D uFrontMap;
         uniform sampler2D uBackMap;
+        uniform vec3 uAmbientColor;
+        uniform vec3 uKeyColor;
+        uniform vec3 uKeyDirectionWorld;
+        uniform float uAmbientStrength;
+        uniform float uKeyStrength;
 
         varying vec2 vUv;
         varying float vCurve;
         varying float vTurn;
         varying float vWrinkle;
         varying float vGrabInfluence;
+        varying vec3 vWorldPosition;
 
         void main() {
           vec2 sampleUv = gl_FrontFacing ? vUv : vec2(1.0 - vUv.x, vUv.y);
@@ -127,18 +146,27 @@ export class PageCurlSheet {
             ? texture2D(uFrontMap, sampleUv).rgb
             : texture2D(uBackMap, sampleUv).rgb;
 
-          // The turning sheet is a custom unlit shader while the resting pages use
-          // MeshStandardMaterial. Without a common paper tone the active sheet reads
-          // as a bright white overlay. Keep the same warm/dim family as the book and
-          // let curl shading provide movement instead of changing the paper color.
-          const vec3 globalPaperTone = vec3(0.78, 0.745, 0.69);
-          float trough = 1.0 - vCurve * 0.13;
-          float softHighlight = 1.0 + vCurve * 0.018 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
-          float edgeTone = 0.982 + 0.012 * sin(sampleUv.x * 3.14159265);
-          float turnTone = mix(1.0, 0.972, smoothstep(0.35, 0.75, vTurn) * vCurve);
-          float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.018 * (0.35 + 0.65 * vGrabInfluence);
+          // Reconstruct the deformed sheet normal from the actual curled surface so the
+          // moving page receives the same room key/ambient lighting family as resting
+          // MeshStandard pages. This prevents the selected sheet from turning into a
+          // bright unlit card when the user starts dragging it.
+          vec3 normalWorld = normalize(cross(dFdx(vWorldPosition), dFdy(vWorldPosition)));
+          if (!gl_FrontFacing) normalWorld *= -1.0;
+          float facingLight = max(dot(normalWorld, normalize(uKeyDirectionWorld)), 0.0);
+          float wrappedLight = 0.18 + 0.82 * facingLight;
 
-          gl_FragColor = vec4(paper * globalPaperTone * trough * softHighlight * edgeTone * turnTone * wrinkleShade, 1.0);
+          vec3 illumination = uAmbientColor * uAmbientStrength
+            + uKeyColor * (uKeyStrength * wrappedLight);
+          illumination = clamp(illumination, vec3(0.46), vec3(1.02));
+
+          float trough = 1.0 - vCurve * 0.11;
+          float foldHighlight = 1.0 + vCurve * 0.010 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
+          float edgeTone = 0.988 + 0.008 * sin(sampleUv.x * 3.14159265);
+          float turnTone = mix(1.0, 0.976, smoothstep(0.35, 0.75, vTurn) * vCurve);
+          float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.014 * (0.35 + 0.65 * vGrabInfluence);
+
+          vec3 litPaper = paper * illumination * trough * foldHighlight * edgeTone * turnTone * wrinkleShade;
+          gl_FragColor = vec4(litPaper, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
@@ -169,6 +197,20 @@ export class PageCurlSheet {
 
   public setDragAmount(amount: number): void {
     this.uniforms.uDragAmount.value = THREE.MathUtils.clamp(amount, 0, 1);
+  }
+
+  public setLighting(
+    ambientColor: THREE.Color,
+    keyColor: THREE.Color,
+    keyDirectionWorld: THREE.Vector3,
+    ambientStrength: number,
+    keyStrength: number
+  ): void {
+    this.uniforms.uAmbientColor.value.copy(ambientColor);
+    this.uniforms.uKeyColor.value.copy(keyColor);
+    this.uniforms.uKeyDirectionWorld.value.copy(keyDirectionWorld).normalize();
+    this.uniforms.uAmbientStrength.value = THREE.MathUtils.clamp(ambientStrength, 0, 1.2);
+    this.uniforms.uKeyStrength.value = THREE.MathUtils.clamp(keyStrength, 0, 1.2);
   }
 
   public dispose(): void {

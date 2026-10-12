@@ -137,6 +137,16 @@ export class BookRenderer {
     this.reducedMotion = enabled;
   }
 
+  public setPageLighting(
+    ambientColor: THREE.Color,
+    keyColor: THREE.Color,
+    keyDirectionWorld: THREE.Vector3,
+    ambientStrength: number,
+    keyStrength: number
+  ): void {
+    this.turningSheet.setLighting(ambientColor, keyColor, keyDirectionWorld, ambientStrength, keyStrength);
+  }
+
   public setPageSource(source: BookPageSource, initialPageIndex = 0): void {
     if (this.pageSource && this.pageSource !== source) this.pageSource.dispose();
     this.pageSource = source;
