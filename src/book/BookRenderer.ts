@@ -136,6 +136,10 @@ export class BookRenderer {
     this.reducedMotion = enabled;
   }
 
+  public setPageTurnTranslucency(enabled: boolean): void {
+    this.turningSheet.setPageTranslucency(enabled);
+  }
+
   public setPageLighting(
     ambientColor: THREE.Color,
     keyColor: THREE.Color,
