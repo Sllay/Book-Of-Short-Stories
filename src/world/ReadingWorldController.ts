@@ -157,8 +157,6 @@ export class ReadingWorldController {
   private createWallCorner(): THREE.Group {
     const group = new THREE.Group();
 
-    // Only the room corner visible in front/right of the reader exists in the scene.
-    // The window itself is behind the reader and is therefore visible only in the mirror.
     const rearWall = new THREE.Mesh(
       this.trackGeometry(new THREE.BoxGeometry(5.2, 0.18, 4.45)),
       this.wallMaterial
@@ -191,9 +189,6 @@ export class ReadingWorldController {
 
   private createMirror(): THREE.Group {
     const mirror = new THREE.Group();
-
-    // PlaneGeometry starts flat in XY. Rotating close to +90° around X makes the
-    // circular mirror stand on the desk and face the reader instead of the ceiling.
     mirror.position.set(2.62, 2.24, 0.48);
     mirror.rotation.x = Math.PI / 2 - 0.11;
     mirror.rotation.z = -0.035;
@@ -243,45 +238,49 @@ export class ReadingWorldController {
     const root = new THREE.Group();
     root.position.set(-3.08, 0.92, -0.31);
 
-    const holderMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x6a4932,
-      roughness: 0.68,
-      metalness: 0.08
-    }));
-    const holder = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.34, 0.37, 0.05, 28)), holderMaterial);
-    holder.rotation.x = Math.PI / 2;
-    holder.position.z = 0.025;
-    root.add(holder);
-
     const waxMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0xe4c79a,
-      roughness: 0.96,
+      roughness: 0.97,
       metalness: 0
     }));
-    const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.18, 0.22, 0.42, 24)), waxMaterial);
+
+    // Keep the silhouette unmistakably candle-like: one wax cylinder, a small melted
+    // puddle, and a few attached drips. No holder/rim around the body, which previously
+    // made the candle read as if it were sitting inside a cup.
+    const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.18, 0.22, 0.46, 24)), waxMaterial);
     wax.rotation.x = Math.PI / 2;
-    wax.position.z = 0.25;
+    wax.position.z = 0.27;
     root.add(wax);
 
-    const waxTop = new THREE.Mesh(this.trackGeometry(new THREE.TorusGeometry(0.16, 0.035, 8, 24)), waxMaterial);
-    waxTop.position.z = 0.45;
-    waxTop.scale.y = 0.92;
-    root.add(waxTop);
+    const meltedTop = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.17, 18, 10)), waxMaterial);
+    meltedTop.scale.set(1.0, 0.94, 0.17);
+    meltedTop.position.set(-0.01, 0.015, 0.50);
+    root.add(meltedTop);
 
-    const dripA = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.055, 12, 8)), waxMaterial);
-    dripA.scale.set(0.75, 0.55, 1.45);
-    dripA.position.set(0.14, -0.07, 0.34);
+    const puddle = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.27, 0.30, 0.026, 26)), waxMaterial);
+    puddle.rotation.x = Math.PI / 2;
+    puddle.position.set(0.015, -0.01, 0.025);
+    root.add(puddle);
+
+    const dripA = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.052, 12, 8)), waxMaterial);
+    dripA.scale.set(0.72, 0.52, 1.65);
+    dripA.position.set(0.15, -0.055, 0.37);
     root.add(dripA);
 
-    const dripB = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.045, 10, 8)), waxMaterial);
-    dripB.scale.set(0.7, 0.5, 1.2);
-    dripB.position.set(-0.12, 0.09, 0.31);
+    const dripB = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.044, 10, 8)), waxMaterial);
+    dripB.scale.set(0.68, 0.48, 1.35);
+    dripB.position.set(-0.135, 0.075, 0.33);
     root.add(dripB);
 
+    const dripC = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.034, 10, 8)), waxMaterial);
+    dripC.scale.set(0.66, 0.5, 1.1);
+    dripC.position.set(0.035, 0.17, 0.405);
+    root.add(dripC);
+
     const wickMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0x241711 }));
-    const wick = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.01, 0.012, 0.09, 8)), wickMaterial);
+    const wick = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.01, 0.012, 0.085, 8)), wickMaterial);
     wick.rotation.x = Math.PI / 2;
-    wick.position.z = 0.505;
+    wick.position.z = 0.565;
     root.add(wick);
 
     const flameMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
@@ -290,22 +289,22 @@ export class ReadingWorldController {
     }));
     const flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.07, 14, 12)), flameMaterial);
     flame.scale.set(0.66, 0.66, 1.48);
-    flame.position.z = 0.615;
+    flame.position.z = 0.67;
     root.add(flame);
 
     const glowMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0xff9c4a,
       transparent: true,
-      opacity: 0.055,
+      opacity: 0.05,
       depthWrite: false,
       toneMapped: false
     }));
     const glow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.17, 12, 10)), glowMaterial);
     glow.scale.set(1, 1, 1.2);
-    glow.position.z = 0.61;
+    glow.position.z = 0.665;
     root.add(glow);
 
-    this.candleLight.position.copy(root.position).add(new THREE.Vector3(0, 0, 0.59));
+    this.candleLight.position.copy(root.position).add(new THREE.Vector3(0, 0, 0.65));
     return { root, flame, glow };
   }
 
@@ -328,8 +327,6 @@ export class ReadingWorldController {
     const width = this.reflectionCanvas.width;
     const height = this.reflectionCanvas.height;
 
-    // The mirror reflects the wall behind the reader. The window occupies only part
-    // of that reflected wall; it is not a full-frame sky texture.
     const wallTop = colorCss(lerpHex(palette.wallColor, 0x9b806e, 0.12));
     const wallBottom = colorCss(lerpHex(palette.wallColor, 0x17120f, 0.22));
     const wallGradient = context.createLinearGradient(0, 0, 0, height);
@@ -394,8 +391,6 @@ export class ReadingWorldController {
 
     context.restore();
 
-    // Window mullions remain inside the reflected window area, leaving visible wall
-    // around the frame so the mirror reads as a mirror instead of a circular monitor.
     context.globalAlpha = 0.28;
     context.fillStyle = '#17130f';
     context.fillRect(gx + gw * 0.49, gy, gw * 0.022, gh);
