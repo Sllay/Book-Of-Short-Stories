@@ -34,7 +34,6 @@ export class ReadingWorldController {
   private readonly deskMaterial: THREE.MeshStandardMaterial;
   private readonly wallMaterial: THREE.MeshStandardMaterial;
   private readonly mirrorMaterial: THREE.MeshBasicMaterial;
-  private readonly windowMaterial: THREE.MeshBasicMaterial;
   private readonly reflectionCanvas = document.createElement('canvas');
   private readonly reflectionContext: CanvasRenderingContext2D;
   private readonly reflectionTexture: THREE.CanvasTexture;
@@ -60,6 +59,8 @@ export class ReadingWorldController {
     this.reflectionTexture.colorSpace = THREE.SRGBColorSpace;
     this.reflectionTexture.minFilter = THREE.LinearFilter;
     this.reflectionTexture.magFilter = THREE.LinearFilter;
+    this.reflectionTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.reflectionTexture.wrapT = THREE.ClampToEdgeWrapping;
 
     this.deskMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x5a3927,
@@ -90,17 +91,10 @@ export class ReadingWorldController {
     this.mirrorMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       map: this.reflectionTexture,
       transparent: true,
-      opacity: 0.93,
+      opacity: 0.88,
       toneMapped: false,
       side: THREE.DoubleSide
     }));
-    this.windowMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
-      map: this.reflectionTexture,
-      toneMapped: false,
-      side: THREE.DoubleSide
-    }));
-
-    this.root.add(this.createWindow());
     this.root.add(this.createMirror());
 
     const candle = this.createCandle();
@@ -115,9 +109,7 @@ export class ReadingWorldController {
   public setFocusMode(enabled: boolean): void {
     if (this.focusMode === enabled) return;
     this.focusMode = enabled;
-    this.mirrorMaterial.opacity = enabled ? 0.28 : 0.93;
-    this.windowMaterial.opacity = enabled ? 0.72 : 1;
-    this.windowMaterial.transparent = enabled;
+    this.mirrorMaterial.opacity = enabled ? 0.26 : 0.88;
     this.refreshClock(true);
   }
 
@@ -126,19 +118,19 @@ export class ReadingWorldController {
     this.ambientSeconds += safeDelta / 1000;
 
     const flicker = 1
-      + Math.sin(this.ambientSeconds * 7.7) * 0.035
-      + Math.sin(this.ambientSeconds * 13.1 + 0.8) * 0.018
-      + Math.sin(this.ambientSeconds * 3.2 + 2.1) * 0.012;
+      + Math.sin(this.ambientSeconds * 7.7) * 0.028
+      + Math.sin(this.ambientSeconds * 13.1 + 0.8) * 0.013
+      + Math.sin(this.ambientSeconds * 3.2 + 2.1) * 0.009;
     const focusFactor = this.focusMode ? 0.48 : 1;
     this.candleLight.intensity = this.baseCandleIntensity * flicker * focusFactor;
 
-    const flamePulse = THREE.MathUtils.clamp(flicker, 0.94, 1.08);
-    this.flame.scale.set(0.72 * flamePulse, 0.72 * flamePulse, 1.56 / flamePulse);
-    this.flame.position.x = Math.sin(this.ambientSeconds * 5.8) * 0.012;
-    this.flame.position.y = Math.sin(this.ambientSeconds * 4.1 + 1.2) * 0.008;
-    this.flameGlow.scale.setScalar(1 + Math.sin(this.ambientSeconds * 4.8) * 0.035);
+    const flamePulse = THREE.MathUtils.clamp(flicker, 0.95, 1.06);
+    this.flame.scale.set(0.66 * flamePulse, 0.66 * flamePulse, 1.48 / flamePulse);
+    this.flame.position.x = Math.sin(this.ambientSeconds * 5.8) * 0.008;
+    this.flame.position.y = Math.sin(this.ambientSeconds * 4.1 + 1.2) * 0.006;
+    this.flameGlow.scale.setScalar(1 + Math.sin(this.ambientSeconds * 4.8) * 0.025);
 
-    const reflectionTick = Math.floor(Date.now() / 2500);
+    const reflectionTick = Math.floor(Date.now() / 3000);
     if (reflectionTick !== this.lastReflectionTick) {
       this.lastReflectionTick = reflectionTick;
       this.refreshClock(true);
@@ -153,7 +145,7 @@ export class ReadingWorldController {
 
     const palette = samplePalette(now);
     this.applyLighting(palette);
-    this.drawWindowReflection(now, palette);
+    this.drawMirrorReflection(now, palette);
   }
 
   public dispose(): void {
@@ -165,8 +157,8 @@ export class ReadingWorldController {
   private createWallCorner(): THREE.Group {
     const group = new THREE.Group();
 
-    // A small rear wall plus a much longer right-hand wall establishes a real corner
-    // instead of a flat backdrop. The future bookshelf will live on the rear section.
+    // Only the room corner visible in front/right of the reader exists in the scene.
+    // The window itself is behind the reader and is therefore visible only in the mirror.
     const rearWall = new THREE.Mesh(
       this.trackGeometry(new THREE.BoxGeometry(5.2, 0.18, 4.45)),
       this.wallMaterial
@@ -197,75 +189,47 @@ export class ReadingWorldController {
     return group;
   }
 
-  private createWindow(): THREE.Group {
-    const window = new THREE.Group();
-    window.position.set(4.405, 0.63, 1.92);
-
-    const glass = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(1.92, 1.72)), this.windowMaterial);
-    glass.rotation.x = Math.PI / 2;
-    glass.rotation.z = Math.PI / 2;
-    window.add(glass);
-
-    const frameMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x30251f,
-      roughness: 0.82,
-      metalness: 0
-    }));
-
-    const horizontal = this.trackGeometry(new THREE.BoxGeometry(0.085, 2.12, 0.085));
-    const vertical = this.trackGeometry(new THREE.BoxGeometry(0.085, 0.085, 1.92));
-    const top = new THREE.Mesh(horizontal, frameMaterial);
-    const bottom = new THREE.Mesh(horizontal, frameMaterial);
-    const left = new THREE.Mesh(vertical, frameMaterial);
-    const right = new THREE.Mesh(vertical, frameMaterial);
-    top.position.z = 0.94;
-    bottom.position.z = -0.94;
-    left.position.y = -1.04;
-    right.position.y = 1.04;
-
-    const centerVertical = new THREE.Mesh(vertical, frameMaterial);
-    centerVertical.position.y = 0;
-    const centerHorizontal = new THREE.Mesh(horizontal, frameMaterial);
-    centerHorizontal.position.z = 0;
-    window.add(top, bottom, left, right, centerVertical, centerHorizontal);
-
-    return window;
-  }
-
   private createMirror(): THREE.Group {
     const mirror = new THREE.Group();
-    mirror.position.set(2.62, 1.28, -0.01);
-    mirror.rotation.x = -0.43;
-    mirror.rotation.z = -0.075;
 
-    const panel = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.83, 48)), this.mirrorMaterial);
+    // PlaneGeometry starts flat in XY. Rotating close to +90° around X makes the
+    // circular mirror stand on the desk and face the reader instead of the ceiling.
+    mirror.position.set(2.62, 2.24, 0.48);
+    mirror.rotation.x = Math.PI / 2 - 0.11;
+    mirror.rotation.z = -0.035;
+
+    const panel = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.76, 52)), this.mirrorMaterial);
     panel.position.z = 0.035;
     mirror.add(panel);
 
     const frameMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x35261d,
-      roughness: 0.62,
-      metalness: 0.08
+      color: 0x382920,
+      roughness: 0.58,
+      metalness: 0.1
     }));
-    const frame = new THREE.Mesh(this.trackGeometry(new THREE.RingGeometry(0.83, 0.96, 48)), frameMaterial);
-    frame.position.z = 0.02;
+    const frame = new THREE.Mesh(this.trackGeometry(new THREE.RingGeometry(0.76, 0.88, 52)), frameMaterial);
+    frame.position.z = 0.018;
     mirror.add(frame);
 
     const back = new THREE.Mesh(
-      this.trackGeometry(new THREE.CylinderGeometry(0.965, 0.965, 0.06, 48)),
+      this.trackGeometry(new THREE.CylinderGeometry(0.88, 0.88, 0.055, 52)),
       frameMaterial
     );
     back.rotation.x = Math.PI / 2;
-    back.position.z = -0.005;
+    back.position.z = -0.01;
     mirror.add(back);
 
     const standMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x2c211b,
-      roughness: 0.72,
-      metalness: 0.06
+      color: 0x2d211b,
+      roughness: 0.7,
+      metalness: 0.07
     }));
-    const foot = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(1.08, 0.2, 0.08)), standMaterial);
-    foot.position.set(0, -0.92, -0.08);
+    const stem = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.11, 0.34, 0.075)), standMaterial);
+    stem.position.set(0, -0.89, -0.02);
+    mirror.add(stem);
+
+    const foot = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.88, 0.14, 0.12)), standMaterial);
+    foot.position.set(0, -1.06, 0.055);
     mirror.add(foot);
 
     return mirror;
@@ -277,55 +241,71 @@ export class ReadingWorldController {
     readonly glow: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   } {
     const root = new THREE.Group();
-    root.position.set(-3.06, 0.74, -0.1);
+    root.position.set(-3.08, 0.92, -0.31);
+
+    const holderMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x6a4932,
+      roughness: 0.68,
+      metalness: 0.08
+    }));
+    const holder = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.34, 0.37, 0.05, 28)), holderMaterial);
+    holder.rotation.x = Math.PI / 2;
+    holder.position.z = 0.025;
+    root.add(holder);
 
     const waxMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xe5cba3,
-      roughness: 0.95,
+      color: 0xe4c79a,
+      roughness: 0.96,
       metalness: 0
     }));
-    const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.21, 0.25, 0.4, 20)), waxMaterial);
+    const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.18, 0.22, 0.42, 24)), waxMaterial);
     wax.rotation.x = Math.PI / 2;
+    wax.position.z = 0.25;
     root.add(wax);
 
-    const meltedWax = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.22, 16, 10)), waxMaterial);
-    meltedWax.scale.set(1.06, 0.82, 0.25);
-    meltedWax.position.set(0.035, -0.025, 0.205);
-    root.add(meltedWax);
+    const waxTop = new THREE.Mesh(this.trackGeometry(new THREE.TorusGeometry(0.16, 0.035, 8, 24)), waxMaterial);
+    waxTop.position.z = 0.45;
+    waxTop.scale.y = 0.92;
+    root.add(waxTop);
 
-    const puddle = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.31, 0.35, 0.035, 24)), waxMaterial);
-    puddle.rotation.x = Math.PI / 2;
-    puddle.position.z = -0.215;
-    root.add(puddle);
+    const dripA = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.055, 12, 8)), waxMaterial);
+    dripA.scale.set(0.75, 0.55, 1.45);
+    dripA.position.set(0.14, -0.07, 0.34);
+    root.add(dripA);
 
-    const wickMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0x251913 }));
-    const wick = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.011, 0.014, 0.1, 8)), wickMaterial);
+    const dripB = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.045, 10, 8)), waxMaterial);
+    dripB.scale.set(0.7, 0.5, 1.2);
+    dripB.position.set(-0.12, 0.09, 0.31);
+    root.add(dripB);
+
+    const wickMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0x241711 }));
+    const wick = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.01, 0.012, 0.09, 8)), wickMaterial);
     wick.rotation.x = Math.PI / 2;
-    wick.position.z = 0.255;
+    wick.position.z = 0.505;
     root.add(wick);
 
     const flameMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0xffbf62,
       toneMapped: false
     }));
-    const flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.076, 14, 12)), flameMaterial);
-    flame.scale.set(0.72, 0.72, 1.56);
-    flame.position.z = 0.36;
+    const flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.07, 14, 12)), flameMaterial);
+    flame.scale.set(0.66, 0.66, 1.48);
+    flame.position.z = 0.615;
     root.add(flame);
 
     const glowMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0xff9c4a,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.055,
       depthWrite: false,
       toneMapped: false
     }));
-    const glow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.18, 12, 10)), glowMaterial);
-    glow.scale.set(1, 1, 1.25);
-    glow.position.z = 0.35;
+    const glow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.17, 12, 10)), glowMaterial);
+    glow.scale.set(1, 1, 1.2);
+    glow.position.z = 0.61;
     root.add(glow);
 
-    this.candleLight.position.copy(root.position).add(new THREE.Vector3(0, 0, 0.38));
+    this.candleLight.position.copy(root.position).add(new THREE.Vector3(0, 0, 0.59));
     return { root, flame, glow };
   }
 
@@ -343,23 +323,58 @@ export class ReadingWorldController {
     this.wallMaterial.color.setHex(palette.wallColor);
   }
 
-  private drawWindowReflection(date: Date, palette: WorldPalette): void {
+  private drawMirrorReflection(date: Date, palette: WorldPalette): void {
     const context = this.reflectionContext;
     const width = this.reflectionCanvas.width;
     const height = this.reflectionCanvas.height;
-    const gradient = context.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, colorCss(palette.skyTop));
-    gradient.addColorStop(1, colorCss(palette.skyBottom));
+
+    // The mirror reflects the wall behind the reader. The window occupies only part
+    // of that reflected wall; it is not a full-frame sky texture.
+    const wallTop = colorCss(lerpHex(palette.wallColor, 0x9b806e, 0.12));
+    const wallBottom = colorCss(lerpHex(palette.wallColor, 0x17120f, 0.22));
+    const wallGradient = context.createLinearGradient(0, 0, 0, height);
+    wallGradient.addColorStop(0, wallTop);
+    wallGradient.addColorStop(1, wallBottom);
     context.globalAlpha = 1;
-    context.fillStyle = gradient;
+    context.fillStyle = wallGradient;
     context.fillRect(0, 0, width, height);
+
+    const wx = 82;
+    const wy = 78;
+    const ww = 348;
+    const wh = 302;
+    const frame = 16;
+
+    context.fillStyle = 'rgba(35,27,22,.92)';
+    context.fillRect(wx - frame, wy - frame, ww + frame * 2, wh + frame * 2);
+
+    const gx = wx;
+    const gy = wy;
+    const gw = ww;
+    const gh = wh;
+    const skyGradient = context.createLinearGradient(0, gy, 0, gy + gh);
+    skyGradient.addColorStop(0, colorCss(palette.skyTop));
+    skyGradient.addColorStop(1, colorCss(palette.skyBottom));
+    context.fillStyle = skyGradient;
+    context.fillRect(gx, gy, gw, gh);
+
+    context.save();
+    context.beginPath();
+    context.rect(gx, gy, gw, gh);
+    context.clip();
 
     const hour = date.getHours() + date.getMinutes() / 60;
     const daylight = hour >= 6.2 && hour <= 18.5;
-    context.globalAlpha = daylight ? 0.42 : 0.31;
+    context.globalAlpha = daylight ? 0.38 : 0.28;
     context.fillStyle = daylight ? '#ffe0a2' : '#d9e7ff';
     context.beginPath();
-    context.arc(daylight ? width * 0.73 : width * 0.23, daylight ? height * 0.27 : height * 0.24, daylight ? 24 : 15, 0, Math.PI * 2);
+    context.arc(
+      daylight ? gx + gw * 0.72 : gx + gw * 0.26,
+      daylight ? gy + gh * 0.28 : gy + gh * 0.25,
+      daylight ? 22 : 14,
+      0,
+      Math.PI * 2
+    );
     context.fill();
 
     const blockSeed = Math.floor(date.getTime() / 900_000);
@@ -369,33 +384,37 @@ export class ReadingWorldController {
       const drift = (date.getTime() / 1000 % 120) / 120;
       for (let index = 0; index < cloudCount; index += 1) {
         const seed = blockSeed * 37 + index * 101;
-        const start = -0.15 + pseudoRandom(seed + 1) * 0.42;
-        const x = width * (start + drift * 0.88 + index * 0.16);
-        const y = height * (0.23 + pseudoRandom(seed + 2) * 0.29);
-        const scale = 0.76 + pseudoRandom(seed + 3) * 0.58;
-        this.drawCloud(context, x, y, scale, daylight ? 0.105 : 0.06);
+        const start = -0.12 + pseudoRandom(seed + 1) * 0.38;
+        const x = gx + gw * (start + drift * 0.82 + index * 0.17);
+        const y = gy + gh * (0.25 + pseudoRandom(seed + 2) * 0.26);
+        const scale = 0.7 + pseudoRandom(seed + 3) * 0.48;
+        this.drawCloud(context, x, y, scale, daylight ? 0.095 : 0.052);
       }
     }
 
-    // These mullions belong to the reflected window, so the round mirror is filled
-    // entirely by the window view instead of looking like a rectangular picture.
-    context.globalAlpha = 0.22;
-    context.fillStyle = '#15120f';
-    context.fillRect(width * 0.49, 0, width * 0.02, height);
-    context.fillRect(0, height * 0.49, width, height * 0.025);
+    context.restore();
 
-    const edgeGradient = context.createRadialGradient(
-      width * 0.5,
-      height * 0.46,
-      width * 0.18,
-      width * 0.5,
-      height * 0.5,
-      width * 0.72
-    );
-    edgeGradient.addColorStop(0, 'rgba(255,255,255,0.025)');
-    edgeGradient.addColorStop(1, 'rgba(8,10,13,0.24)');
+    // Window mullions remain inside the reflected window area, leaving visible wall
+    // around the frame so the mirror reads as a mirror instead of a circular monitor.
+    context.globalAlpha = 0.28;
+    context.fillStyle = '#17130f';
+    context.fillRect(gx + gw * 0.49, gy, gw * 0.022, gh);
+    context.fillRect(gx, gy + gh * 0.50, gw, gh * 0.026);
+
+    context.globalAlpha = 0.10;
+    const sheen = context.createLinearGradient(0, 0, width, height);
+    sheen.addColorStop(0.1, 'rgba(255,255,255,0)');
+    sheen.addColorStop(0.43, 'rgba(255,255,255,.30)');
+    sheen.addColorStop(0.56, 'rgba(255,255,255,.04)');
+    sheen.addColorStop(0.8, 'rgba(255,255,255,0)');
+    context.fillStyle = sheen;
+    context.fillRect(0, 0, width, height);
+
+    const vignette = context.createRadialGradient(width * 0.48, height * 0.46, width * 0.22, width * 0.5, height * 0.5, width * 0.73);
+    vignette.addColorStop(0, 'rgba(255,255,255,0)');
+    vignette.addColorStop(1, 'rgba(5,7,9,.28)');
     context.globalAlpha = 1;
-    context.fillStyle = edgeGradient;
+    context.fillStyle = vignette;
     context.fillRect(0, 0, width, height);
 
     this.reflectionTexture.needsUpdate = true;
