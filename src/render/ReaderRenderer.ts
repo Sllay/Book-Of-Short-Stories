@@ -14,9 +14,6 @@ export class ReaderRenderer {
   private readonly hemisphere = new THREE.HemisphereLight(0xfff4dc, 0x6e5b4a, 1.55);
   private readonly keyLight = new THREE.DirectionalLight(0xffe1b0, 1.75);
   private readonly world: ReadingWorldController;
-  private readonly pageAmbientColor = new THREE.Color();
-  private readonly pageKeyDirection = new THREE.Vector3();
-  private readonly bookWorldPosition = new THREE.Vector3();
   private width = 1;
   private height = 1;
   private zoom = 0.55;
@@ -37,7 +34,6 @@ export class ReaderRenderer {
     this.world = new ReadingWorldController(this.hemisphere, this.keyLight);
     this.scene.add(this.world.root, this.hemisphere, this.keyLight, this.book.root);
     this.applyCameraPose();
-    this.syncPageLighting();
   }
 
   public get currentPageIndex(): number { return this.book.currentLeftPageIndex; }
@@ -102,7 +98,6 @@ export class ReaderRenderer {
   }
 
   public render(): void {
-    this.syncPageLighting();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -118,23 +113,6 @@ export class ReaderRenderer {
     const cssPixels = Math.max(1, this.width * this.height);
     const budgetRatio = Math.sqrt(MAX_FRAMEBUFFER_PIXELS / cssPixels);
     return THREE.MathUtils.clamp(Math.min(requested, budgetRatio), 1, 2.35);
-  }
-
-  private syncPageLighting(): void {
-    this.pageAmbientColor.copy(this.hemisphere.color).lerp(this.hemisphere.groundColor, 0.22);
-    this.book.root.getWorldPosition(this.bookWorldPosition);
-    this.pageKeyDirection.copy(this.keyLight.position).sub(this.bookWorldPosition).normalize();
-
-    const ambientStrength = THREE.MathUtils.clamp(0.38 + this.hemisphere.intensity * 0.16, 0.48, 0.68);
-    const keyStrength = THREE.MathUtils.clamp(this.keyLight.intensity * 0.18, 0.09, 0.34);
-
-    this.book.setPageLighting(
-      this.pageAmbientColor,
-      this.keyLight.color,
-      this.pageKeyDirection,
-      ambientStrength,
-      keyStrength
-    );
   }
 
   private applyCameraPose(): void {
