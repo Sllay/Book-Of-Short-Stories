@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['icon.svg', 'default-assets/reading-desk.svg'],
       manifest: {
         name: 'Book of Short Stories',
         short_name: 'Book Stories',
@@ -17,7 +17,12 @@ export default defineConfig({
         start_url: '.',
         icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }]
       },
-      workbox: { navigateFallback: 'index.html', cleanupOutdatedCaches: true }
+      workbox: {
+        navigateFallback: 'index.html',
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true
+      }
     })
   ],
   build: { target: 'es2022', sourcemap: true }
