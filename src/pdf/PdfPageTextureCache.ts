@@ -30,7 +30,8 @@ export class PdfPageTextureCache implements BookPageSource {
     private readonly document: PDFDocumentProxy,
     private readonly onTextureUpdated: () => void,
     private readonly maxEntries = 10,
-    private readonly maxConcurrentRenders = 2
+    private readonly maxConcurrentRenders = 2,
+    private readonly destroyDocumentOnDispose = true
   ) {
     const blankCanvas = createPageCanvas();
     const blankContext = blankCanvas.getContext('2d');
@@ -72,7 +73,7 @@ export class PdfPageTextureCache implements BookPageSource {
     }
     this.cache.clear();
     this.blankTexture.dispose();
-    void this.document.destroy().catch(() => undefined);
+    if (this.destroyDocumentOnDispose) void this.document.destroy().catch(() => undefined);
   }
 
   private ensureEntry(pageIndex: number): PdfTextureEntry {
