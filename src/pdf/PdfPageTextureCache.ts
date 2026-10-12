@@ -154,6 +154,7 @@ export class PdfPageTextureCache implements BookPageSource {
       context.restore();
 
       const renderTask = page.render({
+        canvas: entry.canvas,
         canvasContext: context,
         viewport,
         transform: [1, 0, 0, 1, offsetX, offsetY],
