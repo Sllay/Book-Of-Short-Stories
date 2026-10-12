@@ -127,13 +127,18 @@ export class PageCurlSheet {
             ? texture2D(uFrontMap, sampleUv).rgb
             : texture2D(uBackMap, sampleUv).rgb;
 
-          float trough = 1.0 - vCurve * 0.15;
-          float softHighlight = 1.0 + vCurve * 0.052 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
-          float edgeTone = 0.985 + 0.015 * sin(sampleUv.x * 3.14159265);
-          float turnTone = mix(1.0, 0.968, smoothstep(0.35, 0.75, vTurn) * vCurve);
-          float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.022 * (0.35 + 0.65 * vGrabInfluence);
+          // The turning sheet is a custom unlit shader while the resting pages use
+          // MeshStandardMaterial. Without a common paper tone the active sheet reads
+          // as a bright white overlay. Keep the same warm/dim family as the book and
+          // let curl shading provide movement instead of changing the paper color.
+          const vec3 globalPaperTone = vec3(0.78, 0.745, 0.69);
+          float trough = 1.0 - vCurve * 0.13;
+          float softHighlight = 1.0 + vCurve * 0.018 * (0.5 + 0.5 * sin(sampleUv.x * 3.14159265));
+          float edgeTone = 0.982 + 0.012 * sin(sampleUv.x * 3.14159265);
+          float turnTone = mix(1.0, 0.972, smoothstep(0.35, 0.75, vTurn) * vCurve);
+          float wrinkleShade = 1.0 + clamp(vWrinkle, -1.0, 1.0) * 0.018 * (0.35 + 0.65 * vGrabInfluence);
 
-          gl_FragColor = vec4(paper * trough * softHighlight * edgeTone * turnTone * wrinkleShade, 1.0);
+          gl_FragColor = vec4(paper * globalPaperTone * trough * softHighlight * edgeTone * turnTone * wrinkleShade, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
