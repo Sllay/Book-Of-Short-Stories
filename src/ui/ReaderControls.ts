@@ -226,15 +226,29 @@ export class ReaderControls {
   private createToggle(
     checked: boolean,
     createPatch: (checked: boolean) => Partial<TypographySettings>
-  ): HTMLInputElement {
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = checked;
-    input.className = 'reader-toggle';
-    input.setAttribute('role', 'switch');
-    input.setAttribute('aria-label', 'Translucidez da folha durante a virada');
-    input.addEventListener('change', () => this.applyTypography(createPatch(input.checked)));
-    return input;
+  ): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'reader-toggle';
+    button.setAttribute('role', 'switch');
+    button.setAttribute('aria-label', 'Translucidez da folha durante a virada');
+
+    const knob = document.createElement('span');
+    knob.className = 'reader-toggle-knob';
+    button.append(knob);
+
+    const setChecked = (value: boolean): void => {
+      button.classList.toggle('is-checked', value);
+      button.setAttribute('aria-checked', String(value));
+    };
+
+    setChecked(checked);
+    button.addEventListener('click', () => {
+      const next = button.getAttribute('aria-checked') !== 'true';
+      setChecked(next);
+      this.applyTypography(createPatch(next));
+    });
+    return button;
   }
 
   private createField(labelText: string, control: HTMLElement): HTMLElement {
