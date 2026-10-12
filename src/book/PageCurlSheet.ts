@@ -20,6 +20,13 @@ interface CurlUniforms {
  * Front/back selection happens per fragment with gl_FrontFacing on this ONE mesh.
  * There are no coincident front/back meshes, so the curl cannot expose two printed
  * faces in the same place or look transparent because of depth/z overlap.
+ *
+ * The page intentionally uses symmetric two-sided paper lighting. Three.js normally
+ * flips a DoubleSide surface normal on the back face, which makes the underside of
+ * our flat-normal curl become much darker under a strong daytime key light. Paper in
+ * this reader is visually thin and diffuse, so we cancel that backface-only normal
+ * inversion. Front and back therefore inherit the exact same room-light response;
+ * only the printed texture changes when the physical side changes.
  */
 export class PageCurlSheet {
   public readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
@@ -194,9 +201,20 @@ export class PageCurlSheet {
             diffuseColor *= sampledDiffuseColor;
           #endif
           `
+        )
+        .replace(
+          '#include <normal_fragment_begin>',
+          `#include <normal_fragment_begin>
+          // MeshStandardMaterial flips DoubleSide normals on backfaces. Because this
+          // curl intentionally keeps page normals flat, that flip makes the back face
+          // react like a surface pointing away from the room light. Flip it once more
+          // so both physical paper sides use the same canonical paper normal.
+          #ifdef DOUBLE_SIDED
+            normal *= faceDirection;
+          #endif`
         );
     };
 
-    material.customProgramCacheKey = () => 'book-page-curl-single-opaque-surface-v2';
+    material.customProgramCacheKey = () => 'book-page-curl-single-opaque-surface-v3-symmetric-lighting';
   }
 }
