@@ -39,7 +39,7 @@ export class PageTextureCache implements BookPageSource {
       return existing.texture;
     }
 
-    const texture = createPageTexture(this.pages[pageIndex], this.settings, pageIndex + 1);
+    const texture = createPageTexture(this.pages[pageIndex], this.settings, pageIndex);
     this.cache.set(pageIndex, { texture, lastUsed: ++this.usageTick });
     this.evictIfNeeded();
     return texture;
