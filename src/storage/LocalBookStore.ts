@@ -1,5 +1,6 @@
 import type { LogicalAnchor } from '../document/BookDocument';
 import type { TypographySettings } from '../pagination/types';
+import type { PdfViewMode } from '../pdf/PdfTypes';
 import type { BookSourceType } from './SourceTypes';
 
 const DB_NAME = 'book-of-short-stories';
@@ -34,6 +35,7 @@ export interface StoredProgressRecord {
   readonly bookId: string;
   readonly anchor: LogicalAnchor;
   readonly typography: TypographySettings;
+  readonly pdfMode?: PdfViewMode | null;
   readonly updatedAt: number;
 }
 
