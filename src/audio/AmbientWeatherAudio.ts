@@ -16,6 +16,9 @@ export class AmbientWeatherAudio {
   private previousLightningPulse = 0;
   private lastThunderAt = 0;
   private readonly unsubscribeAudioPreference: () => void;
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) this.setHidden(true);
+  };
 
   public constructor() {
     this.unsubscribeAudioPreference = subscribeSharedAudioEnabled((enabled) => {
@@ -25,10 +28,11 @@ export class AmbientWeatherAudio {
         if (this.context?.state === 'running') void this.context.suspend();
       }
     });
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
   }
 
   public unlockFromGesture(): void {
-    if (!this.enabled) return;
+    if (!this.enabled || document.hidden) return;
     const context = this.ensureContext();
     if (context.state === 'suspended') {
       void context.resume().then(() => this.applyRainLevel());
@@ -60,6 +64,7 @@ export class AmbientWeatherAudio {
   }
 
   public dispose(): void {
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.unsubscribeAudioPreference();
     this.stopRainVoice();
     this.rainNoise = null;
