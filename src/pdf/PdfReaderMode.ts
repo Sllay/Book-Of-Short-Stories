@@ -73,6 +73,7 @@ interface BlockDraft {
   readonly fontSize: number;
   readonly firstY: number;
   readonly lastY: number;
+  readonly lineCount: number;
 }
 
 interface HybridCacheEntry {
@@ -489,9 +490,16 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
     if (current.length === 0) return;
     const first = current[0];
     const last = current[current.length - 1];
-    const fontSize = current.reduce((sum, line) => sum + line.fontSize, 0) / current.length;
+    const fontSize = median(current.map((line) => line.fontSize));
     const text = joinBlockLines(current.map((line) => line.text));
-    drafts.push({ text, align: first.align, fontSize, firstY: first.y, lastY: last.y });
+    drafts.push({
+      text,
+      align: dominantAlignment(current),
+      fontSize,
+      firstY: first.y,
+      lastY: last.y,
+      lineCount: current.length
+    });
     current = [];
   };
 
@@ -503,18 +511,22 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
     }
 
     const verticalGap = previous.y - line.y;
-    const normalGap = Math.min(42, Math.max(previous.fontSize, line.fontSize)) * 1.65;
-    const fontRatio = Math.max(previous.fontSize, line.fontSize) / Math.max(1, Math.min(previous.fontSize, line.fontSize));
-    const sameBlock = line.align === previous.align && verticalGap <= normalGap && fontRatio < 1.34;
+    const referenceFont = Math.min(42, Math.max(previous.fontSize, line.fontSize));
+    const compactGap = referenceFont * 1.5;
+    const continuationGap = referenceFont * 1.9;
+    const sentenceContinues = !endsWithTerminalPunctuation(previous.text) && startsLikeContinuation(line.text);
+    const sameBlock = verticalGap <= compactGap || (sentenceContinues && verticalGap <= continuationGap);
 
     if (!sameBlock) flush();
     current.push(line);
   }
   flush();
 
-  return drafts.map((draft, index) => {
-    const next = drafts[index + 1];
-    const previous = drafts[index - 1];
+  const mergedDrafts = mergeContinuationDrafts(drafts);
+
+  return mergedDrafts.map((draft, index) => {
+    const next = mergedDrafts[index + 1];
+    const previous = mergedDrafts[index - 1];
     const sourceFontRatio = draft.fontSize / Math.max(1, medianFontSize);
     const previousGapRatio = previous
       ? Math.max(0, previous.lastY - draft.firstY) / Math.max(1, Math.max(previous.fontSize, draft.fontSize))
@@ -522,28 +534,39 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
     const nextGapRatio = next
       ? Math.max(0, draft.lastY - next.firstY) / Math.max(1, Math.max(draft.fontSize, next.fontSize))
       : Number.POSITIVE_INFINITY;
-    const isolated = previousGapRatio > 1.7 || nextGapRatio > 1.7;
-    const centeredShort = draft.align === 'center' && draft.text.length <= 120;
-    const strongLargeHeading = sourceFontRatio >= 1.32 && draft.text.length <= 220;
-    const centeredHeading = centeredShort && (sourceFontRatio >= 1.05 || isolated);
-    const heading = strongLargeHeading || centeredHeading;
+
+    const words = draft.text.trim().split(/\s+/).filter(Boolean).length;
+    const explicitHeading = /^(cap[ií]tulo|chapter|parte|part|pr[oó]logo|ep[ií]logo|pref[aá]cio|introdu[cç][aã]o|conclus[aã]o)\b/i.test(draft.text.trim());
+    const dialogueLike = /^[\s“"'‘’]*[—–-]\s*/.test(draft.text);
+    const sentenceLike = words > 12 || endsWithTerminalPunctuation(draft.text);
+    const shortBlock = draft.text.length <= 96 && draft.lineCount <= 3;
+    const isolated = previousGapRatio > 1.8 && nextGapRatio > 1.8;
+    const centeredCandidate = draft.align === 'center' && sourceFontRatio >= 1.14;
+    const stronglyLargerCandidate = sourceFontRatio >= 1.38;
+    const heading = explicitHeading || (
+      !dialogueLike
+      && !sentenceLike
+      && shortBlock
+      && isolated
+      && (centeredCandidate || stronglyLargerCandidate)
+    );
     const visualScale = heading
-      ? THREE.MathUtils.clamp(1.05 + Math.max(0, sourceFontRatio - 1) * 0.08, 1.05, 1.12)
+      ? THREE.MathUtils.clamp(1.04 + Math.max(0, sourceFontRatio - 1) * 0.06, 1.04, 1.09)
       : undefined;
 
     let spacingBefore = 0;
     if (previous) {
-      if (previousGapRatio > 2.7) spacingBefore = 28;
-      else if (previousGapRatio > 2.05) spacingBefore = 18;
-      else if (previousGapRatio > 1.6) spacingBefore = 10;
+      if (previousGapRatio > 2.7) spacingBefore = 24;
+      else if (previousGapRatio > 2.05) spacingBefore = 15;
+      else if (previousGapRatio > 1.6) spacingBefore = 8;
     }
 
     let spacingAfter: number | undefined;
     if (next) {
       if (nextGapRatio < 1.3) spacingAfter = 5;
-      else if (heading) spacingAfter = 12;
+      else if (heading) spacingAfter = 9;
     } else if (heading) {
-      spacingAfter = 8;
+      spacingAfter = 7;
     }
 
     return {
@@ -556,6 +579,65 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
       visualScale
     } satisfies BookTextBlock;
   });
+}
+
+function mergeContinuationDrafts(drafts: readonly BlockDraft[]): BlockDraft[] {
+  const merged: BlockDraft[] = [];
+
+  for (const draft of drafts) {
+    const previous = merged[merged.length - 1];
+    if (!previous) {
+      merged.push(draft);
+      continue;
+    }
+
+    const gapRatio = Math.max(0, previous.lastY - draft.firstY)
+      / Math.max(1, Math.max(previous.fontSize, draft.fontSize));
+    const continuation = gapRatio <= 2.05
+      && !endsWithTerminalPunctuation(previous.text)
+      && startsLikeContinuation(draft.text);
+
+    if (!continuation) {
+      merged.push(draft);
+      continue;
+    }
+
+    merged[merged.length - 1] = {
+      text: joinBlockLines([previous.text, draft.text]),
+      align: previous.text.length >= draft.text.length ? previous.align : draft.align,
+      fontSize: median([previous.fontSize, draft.fontSize]),
+      firstY: previous.firstY,
+      lastY: draft.lastY,
+      lineCount: previous.lineCount + draft.lineCount
+    };
+  }
+
+  return merged;
+}
+
+function dominantAlignment(lines: readonly ExtractedLine[]): TextAlignment {
+  const weights: Record<TextAlignment, number> = {
+    left: 0,
+    center: 0,
+    right: 0,
+    justify: 0
+  };
+
+  for (const line of lines) weights[line.align] += Math.max(1, line.text.length);
+
+  let best: TextAlignment = 'left';
+  for (const align of ['center', 'right', 'justify'] as const) {
+    if (weights[align] > weights[best]) best = align;
+  }
+  return best;
+}
+
+function startsLikeContinuation(text: string): boolean {
+  return /^[\s“"'‘’(\[]*[a-záéíóúàèìòùâêîôûãõç]/.test(text.trimStart());
+}
+
+function endsWithTerminalPunctuation(text: string): boolean {
+  return /[.!?…][\s”"'’)]*$/.test(text.trim());
 }
 
 function joinBlockLines(lines: readonly string[]): string {
