@@ -94,6 +94,7 @@ export class ReaderRenderer {
   }
 
   public updatePointer(pointer: PointerSnapshot): boolean {
+    if (pointer.isDown) this.world.notifyUserGesture();
     return this.book.handlePointer(pointer, this.camera);
   }
 
