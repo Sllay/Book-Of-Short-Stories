@@ -27,8 +27,6 @@ export class RoomScene {
       metalness: 0
     }));
 
-    // A smaller, thicker tabletop leaves the foreground floor visible and makes the
-    // piece read as furniture instead of an infinite brown plane.
     const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), deskMaterial);
     desk.position.set(0, 0.14, -0.48);
     this.root.add(desk);
@@ -92,8 +90,6 @@ export class RoomScene {
     rightBaseboard.position.set(4.44, 0, -1.48);
     this.root.add(rightBaseboard);
 
-    // Soft contact patches fake the tiny grounding shadows we intentionally avoid
-    // generating with a full shadow-map pass on mobile.
     const contactMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0x20140e,
       transparent: true,
@@ -104,6 +100,23 @@ export class RoomScene {
     const contact = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(5.4, 2.7)), contactMaterial);
     contact.position.set(0, 0.03, -0.292);
     this.root.add(contact);
+
+    const signatureTexture = this.trackTexture(createDeskSignatureTexture());
+    const signatureMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      map: signatureTexture,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide
+    }));
+    const signature = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(0.78, 0.26)),
+      signatureMaterial
+    );
+    signature.position.set(0.16, -1.92, -0.287);
+    signature.rotation.z = -0.018;
+    this.root.add(signature);
   }
 
   public setWallColor(hex: number): void {
@@ -130,4 +143,39 @@ export class RoomScene {
     this.textures.push(texture);
     return texture;
   }
+}
+
+function createDeskSignatureTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 160;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas 2D indisponível para assinatura da mesa.');
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.textBaseline = 'middle';
+
+  const copyrightX = 112;
+  const baselineY = 82;
+  const bkX = 190;
+
+  context.fillStyle = 'rgba(242, 199, 146, 0.20)';
+  context.font = '500 48px Georgia, serif';
+  context.fillText('©', copyrightX + 2, baselineY + 3);
+  context.font = '600 72px Georgia, serif';
+  context.fillText('Bk', bkX + 2, baselineY + 3);
+
+  context.fillStyle = 'rgba(44, 25, 15, 0.62)';
+  context.font = '500 48px Georgia, serif';
+  context.fillText('©', copyrightX, baselineY);
+  context.font = '600 72px Georgia, serif';
+  context.fillText('Bk', bkX, baselineY);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
 }
