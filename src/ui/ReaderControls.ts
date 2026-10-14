@@ -5,6 +5,7 @@ import type { ReadingSessionState } from '../reader/ReadingSession';
 interface ReaderControlsCallbacks {
   readonly onImport: (file: File) => Promise<void>;
   readonly onTypography: (patch: Partial<TypographySettings>) => Promise<void>;
+  readonly onCoverColor: (color: string) => Promise<void> | void;
   readonly onPageTheme: (theme: PageTheme) => Promise<void> | void;
   readonly onPdfMode: (mode: PdfViewMode) => Promise<PdfViewMode>;
   readonly onToggleBookmark: () => Promise<boolean>;
@@ -31,6 +32,8 @@ export class ReaderControls {
   private readonly closeDialog = document.createElement('div');
   private readonly closeDialogCancel = document.createElement('button');
   private readonly closeDialogConfirm = document.createElement('button');
+  private readonly bookmarkColorInput = document.createElement('input');
+  private readonly coverColorInput = document.createElement('input');
   private debounceTimer: number | null = null;
   private statusTimer: number | null = null;
   private focusEnabled = false;
@@ -65,7 +68,7 @@ export class ReaderControls {
     this.typeButton.type = 'button';
     this.typeButton.className = 'reader-tool-button';
     this.typeButton.textContent = 'Aa';
-    this.typeButton.title = 'Tipografia';
+    this.typeButton.title = 'Tipografia e aparência';
 
     this.themeButton.type = 'button';
     this.themeButton.className = 'reader-tool-button';
@@ -157,18 +160,15 @@ export class ReaderControls {
     this.importButton.disabled = state.busy;
     this.pdfModeButton.hidden = !pdfOpen;
     this.pdfModeButton.disabled = state.busy || !pdfOpen || this.bookClosed;
-    this.typeButton.disabled = state.busy || !customizable || this.bookClosed;
+    this.typeButton.disabled = state.busy || this.bookClosed;
     this.themeButton.disabled = state.busy || !customizable || this.bookClosed;
     this.bookmarkButton.disabled = state.busy || this.bookClosed;
     this.closeButton.disabled = state.busy || this.bookClosed;
-    this.typeButton.title = customizable ? 'Tipografia' : 'Use Reader Mode para alterar a tipografia do PDF';
+    this.typeButton.title = customizable
+      ? 'Tipografia e aparência'
+      : 'Aparência do livro • tipografia do PDF Original é fixa';
     this.updatePdfModeButton();
     this.setPageTheme(this.pageTheme);
-
-    if (!customizable && !this.panel.hidden) {
-      this.panel.hidden = true;
-      this.typeButton.classList.remove('is-active');
-    }
 
     if (state.busy) {
       this.showStatus(state.message, 'busy', 0);
@@ -191,11 +191,20 @@ export class ReaderControls {
     this.setBookmarkState(bookmarked, bookmarked);
   }
 
+  public setBookmarkColor(color: string): void {
+    this.bookmarkColorInput.value = normalizeHexColor(color, '#b4483c');
+  }
+
+  public setCoverColor(color: string): void {
+    this.coverColorInput.value = normalizeHexColor(color, '#5a3526');
+  }
+
   public setBookClosed(closed: boolean): void {
     this.bookClosed = closed;
     this.closeButton.disabled = closed || this.busy;
     this.bookmarkButton.disabled = closed || this.busy;
     this.pdfModeButton.disabled = closed || this.busy || this.pdfMode === null;
+    this.typeButton.disabled = closed || this.busy;
     if (closed && !this.panel.hidden) {
       this.panel.hidden = true;
       this.typeButton.classList.remove('is-active');
@@ -297,12 +306,23 @@ export class ReaderControls {
     }
     paper.addEventListener('change', () => this.applyTypography({ paperTone: paper.value }));
 
-    const bookmarkColor = document.createElement('input');
-    bookmarkColor.type = 'color';
-    bookmarkColor.className = 'reader-color';
-    bookmarkColor.value = settings.bookmarkColor ?? '#b4483c';
-    bookmarkColor.setAttribute('aria-label', 'Cor da marcação de página');
-    bookmarkColor.addEventListener('change', () => this.applyTypography({ bookmarkColor: bookmarkColor.value }));
+    this.bookmarkColorInput.type = 'color';
+    this.bookmarkColorInput.className = 'reader-color';
+    this.setBookmarkColor(settings.bookmarkColor ?? '#b4483c');
+    this.bookmarkColorInput.setAttribute('aria-label', 'Cor da marcação de página');
+    this.bookmarkColorInput.addEventListener('change', () => {
+      this.applyTypography({ bookmarkColor: this.bookmarkColorInput.value });
+    });
+
+    this.coverColorInput.type = 'color';
+    this.coverColorInput.className = 'reader-color';
+    this.coverColorInput.value = '#5a3526';
+    this.coverColorInput.setAttribute('aria-label', 'Cor física da capa, lombada e contracapa');
+    this.coverColorInput.addEventListener('change', () => {
+      void Promise.resolve(this.callbacks.onCoverColor(this.coverColorInput.value)).catch((error: unknown) => {
+        this.showError(error instanceof Error ? error.message : 'Não foi possível alterar a cor da capa.');
+      });
+    });
 
     this.panel.append(
       this.createField('Fonte', font),
@@ -312,7 +332,8 @@ export class ReaderControls {
       this.createField('Numeração', pageNumberScale),
       this.createField('Translucidez', pageTurnTranslucency),
       this.createField('Papel', paper),
-      this.createField('Marcador', bookmarkColor)
+      this.createField('Marcador', this.bookmarkColorInput),
+      this.createField('Capa', this.coverColorInput)
     );
   }
 
@@ -500,7 +521,7 @@ export class ReaderControls {
   };
 
   private readonly toggleTypographyPanel = (): void => {
-    if (this.fixedLayout || this.bookClosed) return;
+    if (this.bookClosed) return;
     this.panel.hidden = !this.panel.hidden;
     this.typeButton.classList.toggle('is-active', !this.panel.hidden);
   };
@@ -585,4 +606,8 @@ export class ReaderControls {
     this.showMessage(enabled ? 'Som de página ligado' : 'Som de página desligado');
     void Promise.resolve(this.callbacks.onAudioEnabled(enabled)).catch(() => this.setAudioEnabled(!enabled));
   };
+}
+
+function normalizeHexColor(value: string, fallback: string): string {
+  return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback;
 }
