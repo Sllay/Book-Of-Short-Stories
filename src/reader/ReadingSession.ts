@@ -424,7 +424,7 @@ export class ReadingSession {
         this.pageCount = source.pageCount;
         this.currentLeftPage = targetLeftPage;
         this.renderer.setPublication(source, targetLeftPage);
-        if (!textureOnlyChange) this.setBusy(false, 'Reader Mode pronto');
+        if (this.busy) this.setBusy(false, 'Reader Mode pronto');
         this.emitProgress();
         return;
       } catch (error: unknown) {
