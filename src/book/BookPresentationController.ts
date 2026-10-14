@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import type { PointerSnapshot } from '../core/types';
+import type { BookRenderer, PhysicalFoldSide } from './BookRenderer';
 
 const CLOSED_WIDTH = 2.52;
 const CLOSED_HEIGHT = 3.17;
 const BOOK_PAGE_WIDTH = 2.3;
 const BOOK_PAGE_HEIGHT = 2.95;
+const CLOSED_HOME_X = BOOK_PAGE_WIDTH * 0.5;
 
 export type BookCloseReason = 'manual' | 'finished' | 'import';
 
@@ -31,6 +33,8 @@ export class BookPresentationController {
   private readonly closedGroup = new THREE.Group();
   private readonly closedBodyMaterial: THREE.MeshStandardMaterial;
   private readonly closedCoverMaterial: THREE.MeshStandardMaterial;
+  private readonly closedBackMaterial: THREE.MeshStandardMaterial;
+  private readonly closedSpineMaterial: THREE.MeshStandardMaterial;
   private readonly closedHit: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private readonly endHit: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private readonly bookmarkMaterial: THREE.MeshStandardMaterial;
@@ -39,6 +43,7 @@ export class BookPresentationController {
   private coverTexture: THREE.Texture | null = null;
   private phase: PresentationPhase = 'open';
   private closeReason: BookCloseReason = 'manual';
+  private closingSide: PhysicalFoldSide = 'left';
   private animationElapsedMs = 0;
   private pointerWasDown = false;
   private endGesture: EndGesture | null = null;
@@ -48,8 +53,8 @@ export class BookPresentationController {
   private finishRequestListener: (() => void) | null = null;
   private bookmarkRequestListener: ((pageIndex: number) => void) | null = null;
 
-  public constructor(private readonly openBookRoot: THREE.Group) {
-    this.root.add(openBookRoot);
+  public constructor(private readonly book: BookRenderer) {
+    this.root.add(book.root);
 
     this.closedBodyMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x5a3526,
@@ -77,7 +82,22 @@ export class BookPresentationController {
     front.position.z = 0.126;
     this.closedGroup.add(front);
 
-    const spineMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+    this.closedBackMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x5a3526,
+      roughness: 0.9,
+      metalness: 0,
+      transparent: true,
+      side: THREE.FrontSide
+    }));
+    const back = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(CLOSED_WIDTH - 0.12, CLOSED_HEIGHT - 0.12)),
+      this.closedBackMaterial
+    );
+    back.position.z = -0.126;
+    back.rotation.y = Math.PI;
+    this.closedGroup.add(back);
+
+    this.closedSpineMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x43271e,
       roughness: 0.9,
       metalness: 0,
@@ -85,7 +105,7 @@ export class BookPresentationController {
     }));
     const spine = new THREE.Mesh(
       this.trackGeometry(new THREE.BoxGeometry(0.105, CLOSED_HEIGHT + 0.02, 0.285)),
-      spineMaterial
+      this.closedSpineMaterial
     );
     spine.position.x = -CLOSED_WIDTH * 0.5 + 0.035;
     this.closedGroup.add(spine);
@@ -94,7 +114,7 @@ export class BookPresentationController {
     this.closedHit.position.z = 0.19;
     this.closedGroup.add(this.closedHit);
 
-    this.closedGroup.position.set(0, -0.04, 0.02);
+    this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
     this.closedGroup.rotation.x = -0.08;
     this.closedGroup.visible = false;
     this.root.add(this.closedGroup);
@@ -111,11 +131,11 @@ export class BookPresentationController {
     );
     this.bookmarkTab.position.set(1.82, BOOK_PAGE_HEIGHT * 0.5 + 0.12, 0.16);
     this.bookmarkTab.visible = false;
-    this.openBookRoot.add(this.bookmarkTab);
+    this.book.root.add(this.bookmarkTab);
 
     this.endHit = this.createInvisibleHit(BOOK_PAGE_WIDTH, BOOK_PAGE_HEIGHT);
     this.endHit.position.set(BOOK_PAGE_WIDTH * 0.5, 0, 0.18);
-    this.openBookRoot.add(this.endHit);
+    this.book.root.add(this.endHit);
   }
 
   public get isClosed(): boolean {
@@ -145,15 +165,12 @@ export class BookPresentationController {
     this.coverTexture = artwork?.texture ?? null;
     const edgeColor = artwork?.edgeColor ?? 0x5a3526;
     this.closedBodyMaterial.color.setHex(edgeColor);
+    this.closedBackMaterial.color.setHex(edgeColor);
     this.closedCoverMaterial.map = this.coverTexture;
     this.closedCoverMaterial.color.setHex(this.coverTexture ? 0xffffff : edgeColor);
     this.closedCoverMaterial.needsUpdate = true;
-
-    const spine = this.closedGroup.children[2];
-    const material = spine instanceof THREE.Mesh ? spine.material : null;
-    if (material instanceof THREE.MeshStandardMaterial) {
-      material.color.set(new THREE.Color(edgeColor).multiplyScalar(0.76));
-    }
+    this.closedBackMaterial.needsUpdate = true;
+    this.closedSpineMaterial.color.set(new THREE.Color(edgeColor).multiplyScalar(0.78));
   }
 
   public setCurrentPage(leftPageIndex: number): void {
@@ -170,15 +187,17 @@ export class BookPresentationController {
 
   public close(reason: BookCloseReason, instant = false): void {
     this.closeReason = reason;
+    this.closingSide = reason === 'finished' ? 'right' : 'left';
     this.endGesture = null;
     this.pointerWasDown = false;
     this.bookmarkTab.visible = false;
 
     if (instant) {
       this.phase = 'closed';
-      this.openBookRoot.visible = false;
-      this.resetOpenRootTransform();
+      this.book.root.visible = false;
+      this.book.resetPhysicalFold();
       this.closedGroup.visible = true;
+      this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
       this.closedGroup.rotation.y = 0;
       this.setClosedOpacity(1);
       return;
@@ -187,8 +206,12 @@ export class BookPresentationController {
     if (this.phase !== 'open') return;
     this.phase = 'closing';
     this.animationElapsedMs = 0;
+    this.book.cancelInteraction();
+    this.book.resetPhysicalFold();
+    this.book.root.visible = true;
     this.closedGroup.visible = true;
-    this.closedGroup.rotation.y = 0;
+    this.closedGroup.position.set(this.closingSide === 'left' ? CLOSED_HOME_X : -CLOSED_HOME_X, -0.04, 0.02);
+    this.closedGroup.rotation.y = this.closingSide === 'right' ? Math.PI : 0;
     this.setClosedOpacity(0);
   }
 
@@ -197,11 +220,12 @@ export class BookPresentationController {
     this.phase = 'opening';
     this.animationElapsedMs = 0;
     this.closedGroup.visible = true;
+    this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
     this.closedGroup.rotation.y = 0;
-    this.openBookRoot.visible = true;
-    this.openBookRoot.scale.x = 0.52;
-    this.openBookRoot.position.x = 0;
+    this.book.root.visible = true;
+    this.book.setPhysicalFold('left', 1);
     this.bookmarkTab.visible = false;
+    this.setClosedOpacity(1);
   }
 
   public handlePointer(pointer: PointerSnapshot, camera: THREE.Camera, atEnd: boolean): boolean {
@@ -259,25 +283,29 @@ export class BookPresentationController {
 
   public update(deltaMs: number): boolean {
     const delta = Math.max(0, Math.min(100, deltaMs));
+
     if (this.phase === 'closing') {
       this.animationElapsedMs += delta;
-      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 520, 0, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      this.openBookRoot.scale.x = THREE.MathUtils.lerp(1, 0.52, eased);
-      this.openBookRoot.position.x = THREE.MathUtils.lerp(0, -0.03, eased);
-      this.setClosedOpacity(THREE.MathUtils.smoothstep((t - 0.34) / 0.66, 0, 1));
-      this.closedGroup.scale.setScalar(THREE.MathUtils.lerp(0.92, 1, eased));
+      const duration = 760;
+      const t = THREE.MathUtils.clamp(this.animationElapsedMs / duration, 0, 1);
+      const eased = easeInOutCubic(t);
+      this.book.setPhysicalFold(this.closingSide, eased);
+      const closedReveal = THREE.MathUtils.smoothstep((t - 0.78) / 0.22, 0, 1);
+      this.setClosedOpacity(closedReveal);
 
       if (t >= 1) {
-        this.openBookRoot.visible = false;
-        this.resetOpenRootTransform();
-        this.closedGroup.scale.setScalar(1);
+        this.book.root.visible = false;
+        this.book.resetPhysicalFold();
         this.setClosedOpacity(1);
         if (this.closeReason === 'finished') {
           this.phase = 'finished-flip';
           this.animationElapsedMs = 0;
+          this.closedGroup.position.set(-CLOSED_HOME_X, -0.04, 0.02);
+          this.closedGroup.rotation.y = Math.PI;
         } else {
           this.phase = 'closed';
+          this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
+          this.closedGroup.rotation.y = 0;
         }
       }
       return true;
@@ -285,15 +313,14 @@ export class BookPresentationController {
 
     if (this.phase === 'finished-flip') {
       this.animationElapsedMs += delta;
-      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 1280, 0, 1);
-      const eased = t < 0.5
-        ? 2 * t * t
-        : 1 - Math.pow(-2 * t + 2, 2) / 2;
-      this.closedGroup.rotation.y = Math.PI * 2 * eased;
-      this.closedGroup.position.z = 0.02 + Math.sin(Math.PI * t) * 0.10;
+      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 1080, 0, 1);
+      const eased = easeInOutCubic(t);
+      this.closedGroup.rotation.y = THREE.MathUtils.lerp(Math.PI, Math.PI * 2, eased);
+      this.closedGroup.position.x = THREE.MathUtils.lerp(-CLOSED_HOME_X, CLOSED_HOME_X, eased);
+      this.closedGroup.position.z = 0.02 + Math.sin(Math.PI * t) * 0.13;
       if (t >= 1) {
         this.closedGroup.rotation.y = 0;
-        this.closedGroup.position.z = 0.02;
+        this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
         this.phase = 'closed';
       }
       return true;
@@ -301,18 +328,17 @@ export class BookPresentationController {
 
     if (this.phase === 'opening') {
       this.animationElapsedMs += delta;
-      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 560, 0, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      this.openBookRoot.scale.x = THREE.MathUtils.lerp(0.52, 1, eased);
-      this.openBookRoot.position.x = THREE.MathUtils.lerp(-0.03, 0, eased);
-      this.setClosedOpacity(1 - THREE.MathUtils.smoothstep(t, 0.12, 0.82));
-      this.closedGroup.scale.setScalar(THREE.MathUtils.lerp(1, 0.93, eased));
+      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 720, 0, 1);
+      const eased = easeInOutCubic(t);
+      this.book.setPhysicalFold('left', 1 - eased);
+      this.setClosedOpacity(1 - THREE.MathUtils.smoothstep((t - 0.08) / 0.38, 0, 1));
+
       if (t >= 1) {
         this.phase = 'open';
         this.closedGroup.visible = false;
-        this.closedGroup.scale.setScalar(1);
         this.setClosedOpacity(1);
-        this.resetOpenRootTransform();
+        this.book.resetPhysicalFold();
+        this.book.root.visible = true;
         this.bookmarkTab.visible = this.bookmarkPage !== null;
         this.positionBookmark();
       }
@@ -373,15 +399,8 @@ export class BookPresentationController {
     const opacity = THREE.MathUtils.clamp(value, 0, 1);
     this.closedBodyMaterial.opacity = opacity;
     this.closedCoverMaterial.opacity = opacity;
-    const spine = this.closedGroup.children[2];
-    if (spine instanceof THREE.Mesh && spine.material instanceof THREE.MeshStandardMaterial) {
-      spine.material.opacity = opacity;
-    }
-  }
-
-  private resetOpenRootTransform(): void {
-    this.openBookRoot.scale.set(1, 1, 1);
-    this.openBookRoot.position.x = 0;
+    this.closedBackMaterial.opacity = opacity;
+    this.closedSpineMaterial.opacity = opacity;
   }
 
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
@@ -393,4 +412,10 @@ export class BookPresentationController {
     this.materials.push(material);
     return material;
   }
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5
+    ? 4 * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
