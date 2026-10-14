@@ -26,16 +26,16 @@ interface PaletteStop extends WorldPalette {
 type CelestialState = MirrorCelestialState;
 
 const PALETTE_STOPS: readonly PaletteStop[] = [
-  { hour: 0, skyTop: 0x06101f, skyBottom: 0x141d34, ambientSky: 0x7f9bc7, ambientGround: 0x25212a, keyColor: 0x9dbfff, keyIntensity: 0.44, hemisphereIntensity: 0.66, candleIntensity: 1.0, wallColor: 0x231e22 },
-  { hour: 3.5, skyTop: 0x101c30, skyBottom: 0x2d3245, ambientSky: 0x8da1bd, ambientGround: 0x302830, keyColor: 0xa8c3ed, keyIntensity: 0.48, hemisphereIntensity: 0.72, candleIntensity: 1.0, wallColor: 0x2b2427 },
-  { hour: 5.2, skyTop: 0x314761, skyBottom: 0xba705b, ambientSky: 0xc7b6b0, ambientGround: 0x46372f, keyColor: 0xffaa75, keyIntensity: 0.82, hemisphereIntensity: 0.9, candleIntensity: 0.82, wallColor: 0x43342f },
-  { hour: 6.4, skyTop: 0x6a9fc4, skyBottom: 0xe0bc91, ambientSky: 0xf1d9bc, ambientGround: 0x5c4939, keyColor: 0xffc98e, keyIntensity: 1.36, hemisphereIntensity: 1.18, candleIntensity: 0.45, wallColor: 0x594437 },
-  { hour: 8.5, skyTop: 0x78b2d9, skyBottom: 0xe7dfc9, ambientSky: 0xffefd3, ambientGround: 0x6a5745, keyColor: 0xffd8a8, keyIntensity: 1.72, hemisphereIntensity: 1.42, candleIntensity: 0.2, wallColor: 0x665141 },
-  { hour: 15.8, skyTop: 0x77add3, skyBottom: 0xe6d7be, ambientSky: 0xffebce, ambientGround: 0x68523f, keyColor: 0xffd29b, keyIntensity: 1.62, hemisphereIntensity: 1.36, candleIntensity: 0.22, wallColor: 0x64503f },
-  { hour: 17.6, skyTop: 0x7087a4, skyBottom: 0xe6a06e, ambientSky: 0xe4c8b2, ambientGround: 0x594235, keyColor: 0xffb375, keyIntensity: 1.22, hemisphereIntensity: 1.08, candleIntensity: 0.46, wallColor: 0x594238 },
-  { hour: 18.7, skyTop: 0x39465f, skyBottom: 0xbd6a58, ambientSky: 0xbcaeb1, ambientGround: 0x41332f, keyColor: 0xf6976b, keyIntensity: 0.82, hemisphereIntensity: 0.86, candleIntensity: 0.78, wallColor: 0x40322f },
-  { hour: 20.2, skyTop: 0x0b1528, skyBottom: 0x27304a, ambientSky: 0x8fa8d0, ambientGround: 0x2b2630, keyColor: 0xaac8ff, keyIntensity: 0.5, hemisphereIntensity: 0.72, candleIntensity: 0.98, wallColor: 0x282228 },
-  { hour: 24, skyTop: 0x06101f, skyBottom: 0x141d34, ambientSky: 0x7f9bc7, ambientGround: 0x25212a, keyColor: 0x9dbfff, keyIntensity: 0.44, hemisphereIntensity: 0.66, candleIntensity: 1.0, wallColor: 0x231e22 }
+  { hour: 0, skyTop: 0x050d1a, skyBottom: 0x111a2d, ambientSky: 0x829bc5, ambientGround: 0x39323a, keyColor: 0xa8c4ff, keyIntensity: 0.48, hemisphereIntensity: 0.78, candleIntensity: 1.0, wallColor: 0x4b3936 },
+  { hour: 3.5, skyTop: 0x0d182a, skyBottom: 0x283044, ambientSky: 0x91a5c4, ambientGround: 0x3e353b, keyColor: 0xadc7ef, keyIntensity: 0.5, hemisphereIntensity: 0.82, candleIntensity: 1.0, wallColor: 0x51403d },
+  { hour: 5.2, skyTop: 0x314761, skyBottom: 0xba705b, ambientSky: 0xc7b6b0, ambientGround: 0x4b3c35, keyColor: 0xffaa75, keyIntensity: 0.82, hemisphereIntensity: 0.94, candleIntensity: 0.82, wallColor: 0x5b453e },
+  { hour: 6.4, skyTop: 0x6a9fc4, skyBottom: 0xe0bc91, ambientSky: 0xf1d9bc, ambientGround: 0x5c4939, keyColor: 0xffc98e, keyIntensity: 1.36, hemisphereIntensity: 1.18, candleIntensity: 0.45, wallColor: 0x694f40 },
+  { hour: 8.5, skyTop: 0x78b2d9, skyBottom: 0xe7dfc9, ambientSky: 0xffefd3, ambientGround: 0x6a5745, keyColor: 0xffd8a8, keyIntensity: 1.72, hemisphereIntensity: 1.42, candleIntensity: 0.2, wallColor: 0x735a48 },
+  { hour: 15.8, skyTop: 0x77add3, skyBottom: 0xe6d7be, ambientSky: 0xffebce, ambientGround: 0x68523f, keyColor: 0xffd29b, keyIntensity: 1.62, hemisphereIntensity: 1.36, candleIntensity: 0.22, wallColor: 0x705744 },
+  { hour: 17.4, skyTop: 0x7189a5, skyBottom: 0xe9a26e, ambientSky: 0xe4c8b2, ambientGround: 0x5b463a, keyColor: 0xffb375, keyIntensity: 1.2, hemisphereIntensity: 1.08, candleIntensity: 0.46, wallColor: 0x654b3d },
+  { hour: 18.15, skyTop: 0x37445f, skyBottom: 0xa95e56, ambientSky: 0xb9adb2, ambientGround: 0x4a3a37, keyColor: 0xf49a72, keyIntensity: 0.78, hemisphereIntensity: 0.9, candleIntensity: 0.78, wallColor: 0x56413c },
+  { hour: 18.85, skyTop: 0x091326, skyBottom: 0x222b43, ambientSky: 0x92a8cf, ambientGround: 0x3b343c, keyColor: 0xabc8ff, keyIntensity: 0.53, hemisphereIntensity: 0.8, candleIntensity: 0.98, wallColor: 0x4b3b3b },
+  { hour: 24, skyTop: 0x050d1a, skyBottom: 0x111a2d, ambientSky: 0x829bc5, ambientGround: 0x39323a, keyColor: 0xa8c4ff, keyIntensity: 0.48, hemisphereIntensity: 0.78, candleIntensity: 1.0, wallColor: 0x4b3936 }
 ];
 
 export class ReadingWorldController {
@@ -255,6 +255,7 @@ export class ReadingWorldController {
 
     this.candle.setBaseIntensity(palette.candleIntensity * (1 + weather.rainIntensity * 0.08));
     this.room.setWallColor(palette.wallColor);
+    this.room.setAmbientReadability(this.baseHemisphereIntensity);
     if (date.getMinutes() % 15 === 0) this.weather.refreshIfGranted();
   }
 
@@ -352,17 +353,17 @@ function samplePalette(date: Date): WorldPalette {
 
 function celestialState(date: Date): CelestialState {
   const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-  const sunT = THREE.MathUtils.clamp((hour - 5.35) / (18.65 - 5.35), 0, 1);
-  const sunWindow = hour >= 5.35 && hour <= 18.65 ? 1 : 0;
+  const sunT = THREE.MathUtils.clamp((hour - 5.35) / (18.3 - 5.35), 0, 1);
+  const sunWindow = hour >= 5.35 && hour <= 18.3 ? 1 : 0;
   const sunStrength = sunWindow * THREE.MathUtils.smoothstep(Math.sin(Math.PI * sunT), 0, 0.3);
 
   const nightHour = hour < 6.2 ? hour + 24 : hour;
-  const moonT = THREE.MathUtils.clamp((nightHour - 18.2) / (30.2 - 18.2), 0, 1);
-  const moonWindow = nightHour >= 18.2 && nightHour <= 30.2 ? 1 : 0;
+  const moonT = THREE.MathUtils.clamp((nightHour - 18.15) / (30.2 - 18.15), 0, 1);
+  const moonWindow = nightHour >= 18.15 && nightHour <= 30.2 ? 1 : 0;
   const moonStrength = moonWindow * THREE.MathUtils.smoothstep(Math.sin(Math.PI * moonT), 0, 0.22);
 
   const dawnStars = 1 - THREE.MathUtils.smoothstep((hour - 3.5) / 2.2, 0, 1);
-  const eveningStars = THREE.MathUtils.smoothstep((hour - 18.4) / 1.8, 0, 1);
+  const eveningStars = THREE.MathUtils.smoothstep((hour - 18.05) / 0.9, 0, 1);
   const starsStrength = THREE.MathUtils.clamp(Math.max(dawnStars, eveningStars) * (1 - sunStrength), 0, 1);
   return { sunStrength, moonStrength, sunT, moonT, starsStrength };
 }
