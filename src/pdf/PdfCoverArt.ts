@@ -1,8 +1,22 @@
 import * as THREE from 'three';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { BookCoverArtwork } from '../book/BookPresentationController';
+import { loadPdfPublication } from './PdfDocumentLoader';
 
-const TARGET_HEIGHT = 1024;
+const TARGET_HEIGHT = 896;
+
+export async function createPdfCoverArtworkFromBytes(
+  sourceName: string,
+  data: Uint8Array,
+  knownBookId: string
+): Promise<BookCoverArtwork> {
+  const publication = await loadPdfPublication(sourceName, data, knownBookId);
+  try {
+    return await createPdfCoverArtwork(publication.document);
+  } finally {
+    await publication.document.destroy().catch(() => undefined);
+  }
+}
 
 export async function createPdfCoverArtwork(document: PDFDocumentProxy): Promise<BookCoverArtwork> {
   const page = await document.getPage(1);
@@ -24,6 +38,7 @@ export async function createPdfCoverArtwork(document: PDFDocumentProxy): Promise
     viewport,
     background: '#ffffff'
   }).promise;
+  page.cleanup();
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
