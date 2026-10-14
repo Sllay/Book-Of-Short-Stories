@@ -1,3 +1,5 @@
+import { setSharedAudioEnabled } from './AudioPreferenceBus';
+
 export type PaperTurnDirection = 'forward' | 'backward';
 
 export interface PageFoleyMotion {
@@ -31,6 +33,7 @@ export class AudioEngine {
 
   public setEnabled(enabled: boolean): void {
     this.enabled = enabled;
+    setSharedAudioEnabled(enabled);
     if (!enabled) {
       this.stopDragVoice();
       if (this.context?.state === 'running') void this.context.suspend();
@@ -59,10 +62,6 @@ export class AudioEngine {
 
     const voice = this.dragVoice ?? this.startDragVoice(context, motion.direction);
     const now = context.currentTime;
-
-    // Keep page movement dry and close. Most of the sandy character came from a
-    // bright continuous noise floor, so this voice intentionally lives lower and
-    // narrows when the sheet moves slowly. Faster motion opens the top end a little.
     const targetGain = moved
       ? Math.min(0.026, 0.0032 + speed * 0.0054 + motion.tension * 0.0025)
       : 0.0001;
@@ -122,7 +121,6 @@ export class AudioEngine {
     const duration = 0.15 + Math.random() * 0.045;
     const availableOffset = Math.max(0, buffer.duration - duration - 0.01);
 
-    // A real page landing reads as a muted sheet contact, not a sharp click.
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(0.013 + Math.random() * 0.0035, now + 0.018);
     gain.gain.exponentialRampToValueAtTime(0.005, now + duration * 0.58);
