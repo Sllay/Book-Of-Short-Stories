@@ -1,13 +1,18 @@
 import * as THREE from 'three';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { BookDocument, BookTextBlock, TextAlignment } from '../document/BookDocument';
-import type { BookPageSource } from '../book/PageTextureCache';
-import { createPageTexture } from '../book/PageTextureFactory';
+import { disposeTextureMemory, type BookPageSource } from '../book/PageTextureCache';
+import { createPageTexture, type PageTextureRenderOptions } from '../book/PageTextureFactory';
 import { PaginationEngine } from '../pagination/PaginationEngine';
 import type { PaginatedPage, TypographySettings } from '../pagination/types';
 
-const PDF_TEXTURE_WIDTH = 1536;
-const PDF_TEXTURE_HEIGHT = 2048;
+const READER_TEXTURE_WIDTH = 1024;
+const READER_TEXTURE_HEIGHT = 1365;
+const READER_TEXTURE_OPTIONS: PageTextureRenderOptions = {
+  width: READER_TEXTURE_WIDTH,
+  height: READER_TEXTURE_HEIGHT,
+  anisotropy: 8
+};
 
 type RenderState = 'idle' | 'queued' | 'rendering' | 'ready' | 'failed';
 
@@ -173,6 +178,7 @@ export class PdfReaderPageTextureCache implements BookPageSource {
   private readonly blankTexture: THREE.Texture;
   private readonly queue: number[] = [];
   private readonly queued = new Set<number>();
+  private readonly warmTimers = new Set<number>();
   private usageTick = 0;
   private activeRenders = 0;
   private disposed = false;
@@ -182,10 +188,10 @@ export class PdfReaderPageTextureCache implements BookPageSource {
     public readonly pages: readonly PdfReaderPage[],
     private readonly settings: TypographySettings,
     private readonly onTextureUpdated: () => void,
-    private readonly maxEntries = 10,
-    private readonly maxConcurrentRenders = 2
+    private readonly maxEntries = 6,
+    private readonly maxConcurrentRenders = 1
   ) {
-    this.blankTexture = createPageTexture(null, settings);
+    this.blankTexture = createPageTexture(null, settings, undefined, READER_TEXTURE_OPTIONS);
   }
 
   public get pageCount(): number { return this.pages.length; }
@@ -199,12 +205,21 @@ export class PdfReaderPageTextureCache implements BookPageSource {
   }
 
   public warmAround(pageIndex: number): void {
-    const order = [0, 1, -1, 2, -2, 3, 4, -3];
+    const order = [0, 1, -1, 2, -2, 3];
+    let scheduled = 0;
+
     for (const offset of order) {
       const index = pageIndex + offset;
-      if (index < 0 || index >= this.pages.length) continue;
-      this.ensureEntry(index);
-      if (this.pages[index].kind === 'image') this.enqueue(index, false);
+      if (index < 0 || index >= this.pages.length || this.cache.has(index)) continue;
+
+      const timer = window.setTimeout(() => {
+        this.warmTimers.delete(timer);
+        if (this.disposed) return;
+        this.ensureEntry(index);
+        if (this.pages[index].kind === 'image') this.enqueue(index, false);
+      }, scheduled * 48);
+      this.warmTimers.add(timer);
+      scheduled += 1;
     }
   }
 
@@ -228,12 +243,15 @@ export class PdfReaderPageTextureCache implements BookPageSource {
     this.disposed = true;
     this.queue.length = 0;
     this.queued.clear();
+    for (const timer of this.warmTimers) window.clearTimeout(timer);
+    this.warmTimers.clear();
+
     for (const entry of this.cache.values()) {
       try { entry.renderTask?.cancel(); } catch { /* already complete */ }
-      entry.texture.dispose();
+      disposeTextureMemory(entry.texture);
     }
     this.cache.clear();
-    this.blankTexture.dispose();
+    disposeTextureMemory(this.blankTexture);
   }
 
   private ensureEntry(pageIndex: number): HybridCacheEntry {
@@ -245,7 +263,7 @@ export class PdfReaderPageTextureCache implements BookPageSource {
 
     if (descriptor.kind === 'text') {
       entry = {
-        texture: createPageTexture(descriptor.page, this.settings, pageIndex),
+        texture: createPageTexture(descriptor.page, this.settings, pageIndex, READER_TEXTURE_OPTIONS),
         canvas: null,
         context: null,
         state: 'ready',
@@ -316,15 +334,15 @@ export class PdfReaderPageTextureCache implements BookPageSource {
       const baseViewport = page.getViewport({ scale: 1 });
       const fullBleed = descriptor.sourcePageIndex === 0;
       const scale = fullBleed
-        ? Math.max(PDF_TEXTURE_WIDTH / Math.max(1, baseViewport.width), PDF_TEXTURE_HEIGHT / Math.max(1, baseViewport.height))
-        : Math.min(PDF_TEXTURE_WIDTH / Math.max(1, baseViewport.width), PDF_TEXTURE_HEIGHT / Math.max(1, baseViewport.height));
+        ? Math.max(READER_TEXTURE_WIDTH / Math.max(1, baseViewport.width), READER_TEXTURE_HEIGHT / Math.max(1, baseViewport.height))
+        : Math.min(READER_TEXTURE_WIDTH / Math.max(1, baseViewport.width), READER_TEXTURE_HEIGHT / Math.max(1, baseViewport.height));
       const viewport = page.getViewport({ scale });
-      const offsetX = (PDF_TEXTURE_WIDTH - viewport.width) * 0.5;
-      const offsetY = (PDF_TEXTURE_HEIGHT - viewport.height) * 0.5;
+      const offsetX = (READER_TEXTURE_WIDTH - viewport.width) * 0.5;
+      const offsetY = (READER_TEXTURE_HEIGHT - viewport.height) * 0.5;
 
       entry.context.setTransform(1, 0, 0, 1, 0, 0);
       entry.context.fillStyle = '#ffffff';
-      entry.context.fillRect(0, 0, PDF_TEXTURE_WIDTH, PDF_TEXTURE_HEIGHT);
+      entry.context.fillRect(0, 0, READER_TEXTURE_WIDTH, READER_TEXTURE_HEIGHT);
 
       const renderTask = page.render({
         canvas: entry.canvas,
@@ -368,7 +386,7 @@ export class PdfReaderPageTextureCache implements BookPageSource {
       const queuedPosition = this.queue.indexOf(pageIndex);
       if (queuedPosition >= 0) this.queue.splice(queuedPosition, 1);
       this.cache.delete(pageIndex);
-      entry.texture.dispose();
+      disposeTextureMemory(entry.texture);
     }
   }
 }
@@ -391,7 +409,8 @@ function extractItems(items: readonly unknown[]): ExtractedItem[] {
     const x = transform[4] ?? 0;
     const y = transform[5] ?? 0;
     const rawFontSize = Math.hypot(transform[2] ?? 0, transform[3] ?? 0) || Math.abs(transform[0] ?? 0);
-    const fontSize = Math.max(1, rawFontSize || (typeof candidate.height === 'number' ? candidate.height : 10));
+    const measuredFontSize = rawFontSize || (typeof candidate.height === 'number' ? candidate.height : 10);
+    const fontSize = THREE.MathUtils.clamp(measuredFontSize, 1, 72);
     const width = typeof candidate.width === 'number' && Number.isFinite(candidate.width)
       ? Math.abs(candidate.width)
       : Math.max(fontSize * 0.45, text.length * fontSize * 0.45);
@@ -403,14 +422,15 @@ function extractItems(items: readonly unknown[]): ExtractedItem[] {
 
 function groupItemsIntoLines(items: readonly ExtractedItem[]): Omit<ExtractedLine, 'align'>[] {
   const sorted = [...items].sort((a, b) => {
-    if (Math.abs(a.y - b.y) > Math.max(a.fontSize, b.fontSize) * 0.35) return b.y - a.y;
+    const groupingFont = Math.min(36, Math.max(a.fontSize, b.fontSize));
+    if (Math.abs(a.y - b.y) > groupingFont * 0.35) return b.y - a.y;
     return a.x - b.x;
   });
 
   const groups: Array<{ y: number; items: ExtractedItem[] }> = [];
   for (const item of sorted) {
     const last = groups[groups.length - 1];
-    const tolerance = Math.max(2, item.fontSize * 0.48);
+    const tolerance = Math.max(2, Math.min(item.fontSize, 36) * 0.48);
     if (!last || Math.abs(last.y - item.y) > tolerance) {
       groups.push({ y: item.y, items: [item] });
     } else {
@@ -483,7 +503,7 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
     }
 
     const verticalGap = previous.y - line.y;
-    const normalGap = Math.max(previous.fontSize, line.fontSize) * 1.65;
+    const normalGap = Math.min(42, Math.max(previous.fontSize, line.fontSize)) * 1.65;
     const fontRatio = Math.max(previous.fontSize, line.fontSize) / Math.max(1, Math.min(previous.fontSize, line.fontSize));
     const sameBlock = line.align === previous.align && verticalGap <= normalGap && fontRatio < 1.34;
 
@@ -495,23 +515,35 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
   return drafts.map((draft, index) => {
     const next = drafts[index + 1];
     const previous = drafts[index - 1];
-    const centeredShort = draft.align === 'center' && draft.text.length <= 140;
-    const heading = draft.fontSize >= medianFontSize * 1.18 || (centeredShort && draft.fontSize >= medianFontSize * 0.96);
+    const sourceFontRatio = draft.fontSize / Math.max(1, medianFontSize);
+    const previousGapRatio = previous
+      ? Math.max(0, previous.lastY - draft.firstY) / Math.max(1, Math.max(previous.fontSize, draft.fontSize))
+      : Number.POSITIVE_INFINITY;
+    const nextGapRatio = next
+      ? Math.max(0, draft.lastY - next.firstY) / Math.max(1, Math.max(draft.fontSize, next.fontSize))
+      : Number.POSITIVE_INFINITY;
+    const isolated = previousGapRatio > 1.7 || nextGapRatio > 1.7;
+    const centeredShort = draft.align === 'center' && draft.text.length <= 120;
+    const strongLargeHeading = sourceFontRatio >= 1.32 && draft.text.length <= 220;
+    const centeredHeading = centeredShort && (sourceFontRatio >= 1.05 || isolated);
+    const heading = strongLargeHeading || centeredHeading;
+    const visualScale = heading
+      ? THREE.MathUtils.clamp(1.05 + Math.max(0, sourceFontRatio - 1) * 0.08, 1.05, 1.12)
+      : undefined;
 
     let spacingBefore = 0;
     if (previous) {
-      const gap = Math.max(0, previous.lastY - draft.firstY);
-      const ratio = gap / Math.max(1, Math.max(previous.fontSize, draft.fontSize));
-      if (ratio > 2.7) spacingBefore = 28;
-      else if (ratio > 2.05) spacingBefore = 18;
-      else if (ratio > 1.6) spacingBefore = 10;
+      if (previousGapRatio > 2.7) spacingBefore = 28;
+      else if (previousGapRatio > 2.05) spacingBefore = 18;
+      else if (previousGapRatio > 1.6) spacingBefore = 10;
     }
 
     let spacingAfter: number | undefined;
     if (next) {
-      const gap = Math.max(0, draft.lastY - next.firstY);
-      const ratio = gap / Math.max(1, Math.max(draft.fontSize, next.fontSize));
-      if (ratio < 1.3) spacingAfter = 5;
+      if (nextGapRatio < 1.3) spacingAfter = 5;
+      else if (heading) spacingAfter = 12;
+    } else if (heading) {
+      spacingAfter = 8;
     }
 
     return {
@@ -520,7 +552,8 @@ function buildBlocks(lines: readonly ExtractedLine[], sourcePageIndex: number): 
       text: draft.text,
       align: draft.align,
       spacingBefore,
-      spacingAfter
+      spacingAfter,
+      visualScale
     } satisfies BookTextBlock;
   });
 }
@@ -553,15 +586,15 @@ function median(values: readonly number[]): number {
 
 function createPdfCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
-  canvas.width = PDF_TEXTURE_WIDTH;
-  canvas.height = PDF_TEXTURE_HEIGHT;
+  canvas.width = READER_TEXTURE_WIDTH;
+  canvas.height = READER_TEXTURE_HEIGHT;
   return canvas;
 }
 
 function createCanvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  texture.anisotropy = 6;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
@@ -571,15 +604,15 @@ function createCanvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
 
 function paintLoadingImagePage(context: CanvasRenderingContext2D, dark: boolean): void {
   context.fillStyle = dark ? '#171615' : '#f3efe5';
-  context.fillRect(0, 0, PDF_TEXTURE_WIDTH, PDF_TEXTURE_HEIGHT);
+  context.fillRect(0, 0, READER_TEXTURE_WIDTH, READER_TEXTURE_HEIGHT);
 }
 
 function paintImageError(context: CanvasRenderingContext2D, sourcePageNumber: number): void {
   context.fillStyle = '#f3efe5';
-  context.fillRect(0, 0, PDF_TEXTURE_WIDTH, PDF_TEXTURE_HEIGHT);
+  context.fillRect(0, 0, READER_TEXTURE_WIDTH, READER_TEXTURE_HEIGHT);
   context.fillStyle = '#5a5047';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.font = '500 42px system-ui, sans-serif';
-  context.fillText(`Não foi possível renderizar a imagem da página ${sourcePageNumber}.`, PDF_TEXTURE_WIDTH / 2, PDF_TEXTURE_HEIGHT / 2);
+  context.font = '500 36px system-ui, sans-serif';
+  context.fillText(`Não foi possível renderizar a imagem da página ${sourcePageNumber}.`, READER_TEXTURE_WIDTH / 2, READER_TEXTURE_HEIGHT / 2);
 }

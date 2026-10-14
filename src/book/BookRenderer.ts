@@ -169,12 +169,13 @@ export class BookRenderer {
   }
 
   public setPageSource(source: BookPageSource, initialPageIndex = 0): void {
-    if (this.pageSource && this.pageSource !== source) this.pageSource.dispose();
+    const previousSource = this.pageSource;
     this.pageSource = source;
     this.spreadLeftIndex = Math.max(0, Math.floor(initialPageIndex / 2) * 2);
     this.resetInteractionState();
     this.configureIdleVisual();
     this.pageSource.warmAround(this.spreadLeftIndex);
+    if (previousSource && previousSource !== source) previousSource.dispose();
     this.pageChangeListener?.(this.spreadLeftIndex);
   }
 

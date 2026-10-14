@@ -15,6 +15,7 @@ export interface BookTextBlock {
   readonly align?: TextAlignment;
   readonly spacingBefore?: number;
   readonly spacingAfter?: number;
+  readonly visualScale?: number;
 }
 
 export interface BookChapter {

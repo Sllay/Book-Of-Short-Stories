@@ -14,6 +14,16 @@ interface CacheEntry {
   lastUsed: number;
 }
 
+export function disposeTextureMemory(texture: THREE.Texture): void {
+  const image = texture.image as unknown;
+  texture.dispose();
+
+  if (typeof HTMLCanvasElement !== 'undefined' && image instanceof HTMLCanvasElement) {
+    image.width = 1;
+    image.height = 1;
+  }
+}
+
 export class PageTextureCache implements BookPageSource {
   private readonly cache = new Map<number, CacheEntry>();
   private readonly blankTexture: THREE.Texture;
@@ -54,7 +64,7 @@ export class PageTextureCache implements BookPageSource {
       const timer = window.setTimeout(() => {
         this.warmTimers.delete(timer);
         this.getTexture(index);
-      }, offset * 18);
+      }, offset * 24);
       this.warmTimers.add(timer);
     }
   }
@@ -63,9 +73,9 @@ export class PageTextureCache implements BookPageSource {
     for (const timer of this.warmTimers) window.clearTimeout(timer);
     this.warmTimers.clear();
 
-    for (const entry of this.cache.values()) entry.texture.dispose();
+    for (const entry of this.cache.values()) disposeTextureMemory(entry.texture);
     this.cache.clear();
-    this.blankTexture.dispose();
+    disposeTextureMemory(this.blankTexture);
   }
 
   private evictIfNeeded(): void {
@@ -76,7 +86,7 @@ export class PageTextureCache implements BookPageSource {
       const oldest = entries.shift();
       if (!oldest) break;
       this.cache.delete(oldest[0]);
-      oldest[1].texture.dispose();
+      disposeTextureMemory(oldest[1].texture);
     }
   }
 }

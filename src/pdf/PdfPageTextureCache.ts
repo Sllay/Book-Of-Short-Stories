@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { BookPageSource } from '../book/PageTextureCache';
+import { disposeTextureMemory, type BookPageSource } from '../book/PageTextureCache';
 
 const PDF_TEXTURE_WIDTH = 1536;
 const PDF_TEXTURE_HEIGHT = 2048;
@@ -22,6 +22,7 @@ export class PdfPageTextureCache implements BookPageSource {
   private readonly blankTexture: THREE.CanvasTexture;
   private readonly queue: number[] = [];
   private readonly queued = new Set<number>();
+  private readonly warmTimers = new Set<number>();
   private usageTick = 0;
   private activeRenders = 0;
   private disposed = false;
@@ -29,8 +30,8 @@ export class PdfPageTextureCache implements BookPageSource {
   public constructor(
     private readonly document: PDFDocumentProxy,
     private readonly onTextureUpdated: () => void,
-    private readonly maxEntries = 10,
-    private readonly maxConcurrentRenders = 2,
+    private readonly maxEntries = 8,
+    private readonly maxConcurrentRenders = 1,
     private readonly destroyDocumentOnDispose = true
   ) {
     const blankCanvas = createPageCanvas();
@@ -53,11 +54,20 @@ export class PdfPageTextureCache implements BookPageSource {
 
   public warmAround(pageIndex: number): void {
     const order = [0, 1, -1, 2, -2, 3, 4, -3];
+    let scheduled = 0;
+
     for (const offset of order) {
       const index = pageIndex + offset;
-      if (index < 0 || index >= this.pageCount) continue;
-      this.ensureEntry(index);
-      this.enqueue(index, false);
+      if (index < 0 || index >= this.pageCount || this.cache.has(index)) continue;
+
+      const timer = window.setTimeout(() => {
+        this.warmTimers.delete(timer);
+        if (this.disposed) return;
+        this.ensureEntry(index);
+        this.enqueue(index, false);
+      }, scheduled * 64);
+      this.warmTimers.add(timer);
+      scheduled += 1;
     }
   }
 
@@ -66,13 +76,15 @@ export class PdfPageTextureCache implements BookPageSource {
     this.disposed = true;
     this.queue.length = 0;
     this.queued.clear();
+    for (const timer of this.warmTimers) window.clearTimeout(timer);
+    this.warmTimers.clear();
 
     for (const entry of this.cache.values()) {
       try { entry.renderTask?.cancel(); } catch { /* render may already be complete */ }
-      entry.texture.dispose();
+      disposeTextureMemory(entry.texture);
     }
     this.cache.clear();
-    this.blankTexture.dispose();
+    disposeTextureMemory(this.blankTexture);
     if (this.destroyDocumentOnDispose) void this.document.destroy().catch(() => undefined);
   }
 
@@ -199,7 +211,7 @@ export class PdfPageTextureCache implements BookPageSource {
       const queuedPosition = this.queue.indexOf(pageIndex);
       if (queuedPosition >= 0) this.queue.splice(queuedPosition, 1);
       this.cache.delete(pageIndex);
-      entry.texture.dispose();
+      disposeTextureMemory(entry.texture);
     }
   }
 }

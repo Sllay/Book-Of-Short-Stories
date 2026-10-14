@@ -2,25 +2,34 @@ import * as THREE from 'three';
 import type { PaginatedPage, TypographySettings } from '../pagination/types';
 import { PAGE_LOGICAL_HEIGHT, PAGE_LOGICAL_WIDTH } from '../pagination/types';
 
-const PAGE_TEXTURE_WIDTH = 1536;
-const PAGE_TEXTURE_HEIGHT = 2048;
+const DEFAULT_PAGE_TEXTURE_WIDTH = 1536;
+const DEFAULT_PAGE_TEXTURE_HEIGHT = 2048;
 const DARK_PAPER = '#171615';
 const DARK_INK = '#eee9df';
+
+export interface PageTextureRenderOptions {
+  readonly width?: number;
+  readonly height?: number;
+  readonly anisotropy?: number;
+}
 
 export function createPageTexture(
   page: PaginatedPage | null,
   settings: TypographySettings,
-  pageIndex?: number
+  pageIndex?: number,
+  options: PageTextureRenderOptions = {}
 ): THREE.CanvasTexture {
+  const textureWidth = Math.max(384, Math.floor(options.width ?? DEFAULT_PAGE_TEXTURE_WIDTH));
+  const textureHeight = Math.max(512, Math.floor(options.height ?? DEFAULT_PAGE_TEXTURE_HEIGHT));
   const canvas = document.createElement('canvas');
-  canvas.width = PAGE_TEXTURE_WIDTH;
-  canvas.height = PAGE_TEXTURE_HEIGHT;
+  canvas.width = textureWidth;
+  canvas.height = textureHeight;
 
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas 2D is required to render page textures.');
 
-  const scaleX = PAGE_TEXTURE_WIDTH / PAGE_LOGICAL_WIDTH;
-  const scaleY = PAGE_TEXTURE_HEIGHT / PAGE_LOGICAL_HEIGHT;
+  const scaleX = textureWidth / PAGE_LOGICAL_WIDTH;
+  const scaleY = textureHeight / PAGE_LOGICAL_HEIGHT;
   context.scale(scaleX, scaleY);
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
@@ -84,7 +93,7 @@ export function createPageTexture(
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 16;
+  texture.anisotropy = THREE.MathUtils.clamp(Math.floor(options.anisotropy ?? 16), 1, 16);
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;

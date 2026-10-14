@@ -71,6 +71,7 @@ export class ReadingSession {
   private currentLeftPage = 0;
   private pageCount = 0;
   private generation = 0;
+  private typographyRevision = 0;
   private busy = false;
   private message = 'Preparando leitor…';
 
@@ -143,6 +144,7 @@ export class ReadingSession {
     knownBookId?: string
   ): Promise<PdfPublicationInfo> {
     const generation = ++this.generation;
+    this.typographyRevision += 1;
     const previousTypography = this.typographyState;
     if (restore.typography) this.typographyState = { ...DEFAULT_TYPOGRAPHY, ...restore.typography };
     this.renderer.setPageTurnTranslucency(this.typographyState.pageTurnTranslucency);
@@ -188,8 +190,8 @@ export class ReadingSession {
           source = new PdfPageTextureCache(
             publication.document,
             () => this.visualInvalidationListener?.(),
-            10,
-            2,
+            8,
+            1,
             false
           );
           targetPage = this.resolveOriginalRestorePage(restore.anchor ?? null, publication.document.numPages);
@@ -198,8 +200,8 @@ export class ReadingSession {
         source = new PdfPageTextureCache(
           publication.document,
           () => this.visualInvalidationListener?.(),
-          10,
-          2,
+          8,
+          1,
           false
         );
         targetPage = this.resolveOriginalRestorePage(restore.anchor ?? null, publication.document.numPages);
@@ -227,7 +229,6 @@ export class ReadingSession {
       this.currentLeftPage = targetLeftPage;
       this.renderer.setPageTheme(actualMode === 'reader' ? this.typographyState.pageTheme : 'light');
       this.renderer.setPublication(source, targetLeftPage);
-      source.warmAround(targetLeftPage);
       if (previousPdfDocument && previousPdfDocument !== publication.document) {
         void previousPdfDocument.destroy().catch(() => undefined);
       }
@@ -254,6 +255,7 @@ export class ReadingSession {
     if (requestedMode === this.pdfMode) return this.pdfMode;
 
     const generation = ++this.generation;
+    this.typographyRevision += 1;
     const sourcePage = this.pdfMode === 'reader'
       ? (this.pdfReaderSource?.sourcePageForReaderIndex(this.currentLeftPage) ?? 0)
       : this.currentLeftPage;
@@ -286,14 +288,13 @@ export class ReadingSession {
         this.currentLeftPage = targetLeftPage;
         this.renderer.setPageTheme(this.typographyState.pageTheme);
         this.renderer.setPublication(source, targetLeftPage);
-        source.warmAround(targetLeftPage);
         this.setBusy(false, 'Reader Mode ativo');
       } else {
         const source = new PdfPageTextureCache(
           this.pdfDocument,
           () => this.visualInvalidationListener?.(),
-          10,
-          2,
+          8,
+          1,
           false
         );
         const targetPage = Math.max(0, Math.min(source.pageCount - 1, sourcePage));
@@ -305,7 +306,6 @@ export class ReadingSession {
         this.currentLeftPage = targetLeftPage;
         this.renderer.setPageTheme('light');
         this.renderer.setPublication(source, targetLeftPage);
-        source.warmAround(targetLeftPage);
         this.setBusy(false, 'PDF original ativo');
       }
 
@@ -323,6 +323,7 @@ export class ReadingSession {
     typography: TypographySettings | null = null
   ): Promise<void> {
     const generation = ++this.generation;
+    this.typographyRevision += 1;
     const previousTypography = this.typographyState;
     if (typography) this.typographyState = { ...DEFAULT_TYPOGRAPHY, ...typography };
     const settings = this.typographyState;
@@ -347,7 +348,6 @@ export class ReadingSession {
       this.pageCount = result.pages.length;
       this.currentLeftPage = targetLeftPage;
       this.renderer.setPublication(cache, this.currentLeftPage);
-      cache.warmAround(this.currentLeftPage);
       if (previousPdfDocument) void previousPdfDocument.destroy().catch(() => undefined);
 
       this.setBusy(false, 'Pronto');
@@ -366,6 +366,7 @@ export class ReadingSession {
   }
 
   public async updateTypography(patch: Partial<TypographySettings>): Promise<void> {
+    const revision = ++this.typographyRevision;
     const previousSettings = this.typographyState;
     const nextSettings: TypographySettings = { ...DEFAULT_TYPOGRAPHY, ...previousSettings, ...patch };
     this.typographyState = nextSettings;
@@ -401,12 +402,20 @@ export class ReadingSession {
           readerPages = await buildPdfReaderPages(this.pdfReaderPlan, nextSettings, this.paginator);
         }
 
+        if (revision !== this.typographyRevision || this.typographyState !== nextSettings || this.pdfMode !== 'reader') return;
+
         const source = new PdfReaderPageTextureCache(
           this.pdfDocument,
           readerPages,
           nextSettings,
           () => this.visualInvalidationListener?.()
         );
+
+        if (revision !== this.typographyRevision || this.typographyState !== nextSettings || this.pdfMode !== 'reader') {
+          source.dispose();
+          return;
+        }
+
         const targetPage = source.readerIndexForSourcePage(sourcePage);
         const targetLeftPage = Math.floor(targetPage / 2) * 2;
 
@@ -415,11 +424,11 @@ export class ReadingSession {
         this.pageCount = source.pageCount;
         this.currentLeftPage = targetLeftPage;
         this.renderer.setPublication(source, targetLeftPage);
-        source.warmAround(targetLeftPage);
-        if (!textureOnlyChange) this.setBusy(false, 'Reader Mode pronto');
+        if (this.busy) this.setBusy(false, 'Reader Mode pronto');
         this.emitProgress();
         return;
       } catch (error: unknown) {
+        if (revision !== this.typographyRevision || this.typographyState !== nextSettings) return;
         this.typographyState = previousSettings;
         this.renderer.setPageTurnTranslucency(previousSettings.pageTurnTranslucency);
         this.renderer.setPageTheme(previousSettings.pageTheme);
@@ -456,7 +465,6 @@ export class ReadingSession {
       if (patchKeys.some((key) => textureKeys.has(key)) && this.pages.length > 0) {
         const cache = new PageTextureCache(this.pages, nextSettings);
         this.renderer.setPublication(cache, this.currentLeftPage);
-        cache.warmAround(this.currentLeftPage);
       }
       this.emitProgress();
       return;
@@ -488,6 +496,7 @@ export class ReadingSession {
 
   public dispose(): void {
     this.generation += 1;
+    this.typographyRevision += 1;
     const pdfDocument = this.pdfDocument;
     this.clearPdfState(false);
     if (pdfDocument) void pdfDocument.destroy().catch(() => undefined);
