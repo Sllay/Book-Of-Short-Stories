@@ -22,6 +22,7 @@ export class CandleRig {
   private readonly matchFlame: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private phase: CandlePhase = 'off';
   private phaseTime = 0;
+  private smokeTime = Number.POSITIVE_INFINITY;
   private initialized = false;
   private baseIntensity = 0.7;
   private focusMode = false;
@@ -94,6 +95,7 @@ export class CandleRig {
     }));
     this.smoke = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.055, 10, 8)), smokeMaterial);
     this.smoke.position.z = 0.69;
+    this.smoke.visible = false;
     this.root.add(this.smoke);
 
     const stickMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
@@ -138,6 +140,7 @@ export class CandleRig {
   }
 
   public update(date: Date, deltaMs: number, ambientSeconds: number): void {
+    const deltaSeconds = Math.max(0, Math.min(100, deltaMs)) / 1000;
     const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
     const shouldBeLit = hour >= LIGHT_ON_HOUR || hour < LIGHT_OFF_HOUR;
 
@@ -148,12 +151,14 @@ export class CandleRig {
     } else if (shouldBeLit && (this.phase === 'off' || this.phase === 'extinguishing')) {
       this.phase = 'lighting';
       this.phaseTime = 0;
+      this.smokeTime = Number.POSITIVE_INFINITY;
     } else if (!shouldBeLit && (this.phase === 'on' || this.phase === 'lighting')) {
       this.phase = 'extinguishing';
       this.phaseTime = 0;
     }
 
-    this.phaseTime += Math.max(0, Math.min(100, deltaMs)) / 1000;
+    this.phaseTime += deltaSeconds;
+    if (Number.isFinite(this.smokeTime)) this.smokeTime += deltaSeconds;
 
     let visible = 0;
     if (this.phase === 'on') {
@@ -231,6 +236,7 @@ export class CandleRig {
     if (t >= 1) {
       this.phase = 'off';
       this.phaseTime = 0;
+      this.smokeTime = 0;
       this.flame.rotation.set(0, 0, 0);
       return 0;
     }
@@ -239,13 +245,13 @@ export class CandleRig {
 
   private updateSmoke(): void {
     const material = this.smoke.material;
-    if (this.phase !== 'off' || this.phaseTime > 1.4) {
+    if (!Number.isFinite(this.smokeTime) || this.smokeTime > 1.4) {
       material.opacity = 0;
       this.smoke.visible = false;
       return;
     }
 
-    const t = THREE.MathUtils.clamp(this.phaseTime / 1.4, 0, 1);
+    const t = THREE.MathUtils.clamp(this.smokeTime / 1.4, 0, 1);
     this.smoke.visible = true;
     material.opacity = Math.sin(Math.PI * t) * 0.12;
     this.smoke.position.z = 0.69 + t * 0.28;
