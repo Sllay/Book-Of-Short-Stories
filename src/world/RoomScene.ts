@@ -7,6 +7,9 @@ export class RoomScene {
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
   private readonly textures: THREE.Texture[] = [];
+  private readonly deskMaterial: THREE.MeshStandardMaterial;
+  private readonly edgeMaterial: THREE.MeshStandardMaterial;
+  private readonly floorMaterial: THREE.MeshStandardMaterial;
   private readonly wallMaterial: THREE.MeshStandardMaterial;
 
   public constructor() {
@@ -14,50 +17,56 @@ export class RoomScene {
     const floorTexture = this.trackTexture(createFloorTexture());
     const wallTexture = this.trackTexture(createWallTexture());
 
-    const deskMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+    this.deskMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: woodTexture,
       roughness: 0.88,
-      metalness: 0
+      metalness: 0,
+      emissive: 0x392115,
+      emissiveIntensity: 0.025
     }));
-    const edgeMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+    this.edgeMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x6a4631,
       map: woodTexture,
       roughness: 0.91,
-      metalness: 0
+      metalness: 0,
+      emissive: 0x2b1a12,
+      emissiveIntensity: 0.03
     }));
 
-    const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), deskMaterial);
+    const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), this.deskMaterial);
     desk.position.set(0, 0.14, -0.48);
     this.root.add(desk);
 
-    const frontEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.28, 0.2, 0.28)), edgeMaterial);
+    const frontEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.28, 0.2, 0.28)), this.edgeMaterial);
     frontEdge.position.set(0, -2.61, -0.43);
     this.root.add(frontEdge);
 
-    const apron = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(8.85, 0.16, 0.64)), edgeMaterial);
+    const apron = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(8.85, 0.16, 0.64)), this.edgeMaterial);
     apron.position.set(0, -2.66, -0.79);
     this.root.add(apron);
 
-    const rightEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.2, 5.45, 0.3)), edgeMaterial);
+    const rightEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.2, 5.45, 0.3)), this.edgeMaterial);
     rightEdge.position.set(4.57, 0.13, -0.46);
     this.root.add(rightEdge);
 
     const legGeometry = this.trackGeometry(new THREE.BoxGeometry(0.32, 0.34, 1.4));
-    const frontLeftLeg = new THREE.Mesh(legGeometry, edgeMaterial);
+    const frontLeftLeg = new THREE.Mesh(legGeometry, this.edgeMaterial);
     frontLeftLeg.position.set(-4.05, -2.34, -1.12);
     this.root.add(frontLeftLeg);
-    const frontRightLeg = new THREE.Mesh(legGeometry, edgeMaterial);
+    const frontRightLeg = new THREE.Mesh(legGeometry, this.edgeMaterial);
     frontRightLeg.position.set(4.05, -2.34, -1.12);
     this.root.add(frontRightLeg);
 
-    const floorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+    this.floorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0xc3a585,
       map: floorTexture,
       roughness: 0.96,
-      metalness: 0
+      metalness: 0,
+      emissive: 0x4b3828,
+      emissiveIntensity: 0.035
     }));
-    const floor = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(11.2, 9.2, 0.2)), floorMaterial);
+    const floor = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(11.2, 9.2, 0.2)), this.floorMaterial);
     floor.position.set(0, -0.45, -1.73);
     this.root.add(floor);
 
@@ -66,7 +75,9 @@ export class RoomScene {
       map: wallTexture,
       roughness: 0.99,
       metalness: 0,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      emissive: 0x33241f,
+      emissiveIntensity: 0.04
     }));
 
     const rearWall = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.25, 0.16, 5.15)), this.wallMaterial);
@@ -121,6 +132,16 @@ export class RoomScene {
 
   public setWallColor(hex: number): void {
     this.wallMaterial.color.setHex(hex);
+    this.wallMaterial.emissive.set(new THREE.Color(hex).multiplyScalar(0.42));
+  }
+
+  public setAmbientReadability(hemisphereIntensity: number): void {
+    const normalized = THREE.MathUtils.clamp((hemisphereIntensity - 0.62) / 0.82, 0, 1);
+    const night = 1 - normalized;
+    this.wallMaterial.emissiveIntensity = 0.035 + night * 0.17;
+    this.floorMaterial.emissiveIntensity = 0.025 + night * 0.13;
+    this.deskMaterial.emissiveIntensity = 0.018 + night * 0.085;
+    this.edgeMaterial.emissiveIntensity = 0.022 + night * 0.075;
   }
 
   public dispose(): void {
