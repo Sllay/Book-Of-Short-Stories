@@ -18,6 +18,15 @@ import { ReaderControls } from '../ui/ReaderControls';
 import { ZoomControl } from '../ui/ZoomControl';
 import type { PointerSnapshot } from './types';
 
+interface ScreenWakeLockSentinel {
+  release(): Promise<void>;
+  addEventListener(type: 'release', listener: () => void): void;
+}
+
+interface ScreenWakeLockManager {
+  request(type: 'screen'): Promise<ScreenWakeLockSentinel>;
+}
+
 export class App {
   private readonly shell: HTMLDivElement;
   private readonly canvas: HTMLCanvasElement;
@@ -39,6 +48,8 @@ export class App {
   private lastPointerY = 0;
   private pointerIsDown = false;
   private focusModeEnabled = false;
+  private wakeLock: ScreenWakeLockSentinel | null = null;
+  private wakeLockRequestPending = false;
   private started = false;
   private persistedBookId: string | null = null;
   private progressSaveTimer: number | null = null;
@@ -55,7 +66,7 @@ export class App {
 
     const label = document.createElement('div');
     label.className = 'foundation-label';
-    label.textContent = 'V2.1.1 • PDF Original + Reader';
+    label.textContent = 'V2.1.3 • PDF Original + Reader';
 
     const hint = document.createElement('div');
     hint.className = 'interaction-hint';
@@ -147,6 +158,7 @@ export class App {
   public destroy(): void {
     if (this.progressSaveTimer !== null) window.clearTimeout(this.progressSaveTimer);
     void this.persistCurrentProgress();
+    void this.releaseWakeLock();
     this.scheduler.stop();
     this.resizeObserver.disconnect();
     this.input.destroy();
@@ -316,10 +328,45 @@ export class App {
     this.renderer.setFocusMode(enabled);
     this.controls.setFocusMode(enabled);
 
+    if (enabled) void this.acquireWakeLock();
+    else void this.releaseWakeLock();
+
     if (!document.hidden && !this.pointerIsDown && this.scheduler.currentMode !== 'interactive') {
       this.scheduler.setMode(this.idleRenderMode());
     }
     this.scheduler.invalidate();
+  }
+
+  private async acquireWakeLock(): Promise<void> {
+    if (!this.focusModeEnabled || document.hidden || this.wakeLock || this.wakeLockRequestPending) return;
+
+    const manager = (navigator as Navigator & { wakeLock?: ScreenWakeLockManager }).wakeLock;
+    if (!manager) return;
+
+    this.wakeLockRequestPending = true;
+    try {
+      const sentinel = await manager.request('screen');
+      if (!this.focusModeEnabled || document.hidden) {
+        await sentinel.release().catch(() => undefined);
+        return;
+      }
+
+      this.wakeLock = sentinel;
+      sentinel.addEventListener('release', () => {
+        if (this.wakeLock === sentinel) this.wakeLock = null;
+      });
+    } catch {
+      // Wake Lock can be denied by battery saver/system policy. Focus mode still works.
+    } finally {
+      this.wakeLockRequestPending = false;
+    }
+  }
+
+  private async releaseWakeLock(): Promise<void> {
+    const sentinel = this.wakeLock;
+    this.wakeLock = null;
+    if (!sentinel) return;
+    await sentinel.release().catch(() => undefined);
   }
 
   private applyAudioEnabled(enabled: boolean): void {
@@ -359,7 +406,10 @@ export class App {
     this.lastPointerX = pointer.normalizedX;
     this.lastPointerY = pointer.normalizedY;
     this.pointerIsDown = pointer.isDown;
-    if (pointer.isDown) this.audio.unlockFromGesture();
+    if (pointer.isDown) {
+      this.audio.unlockFromGesture();
+      if (this.focusModeEnabled && !this.wakeLock) void this.acquireWakeLock();
+    }
 
     const wasInteractive = this.scheduler.currentMode === 'interactive';
     const active = this.renderer.updatePointer(pointer);
@@ -383,6 +433,7 @@ export class App {
 
   private readonly handleVisibilityChange = (): void => {
     if (document.hidden) {
+      void this.releaseWakeLock();
       this.pointerIsDown = false;
       this.renderer.cancelInteraction();
       this.shell.classList.remove('is-interacting');
@@ -400,6 +451,7 @@ export class App {
     }
 
     this.audio.setHidden(false);
+    if (this.focusModeEnabled) void this.acquireWakeLock();
     this.governor.resetAfterViewportChange();
     this.scheduler.resetTiming();
     this.scheduler.setMode(this.idleRenderMode());
