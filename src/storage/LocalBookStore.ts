@@ -127,15 +127,15 @@ export class LocalBookStore {
   }
 
   public async toggleBookmark(bookId: string, anchor: LogicalAnchor): Promise<boolean> {
-    const id = this.bookmarkId(bookId, anchor);
-    const existing = await this.get<StoredBookmarkRecord>('bookmarks', id);
-    if (existing) {
-      await this.delete('bookmarks', id);
+    const existing = await this.getBookmark(bookId);
+    if (existing && anchorsEqual(existing.anchor, anchor)) {
+      await this.clearBookmarks(bookId);
       return false;
     }
 
+    await this.clearBookmarks(bookId);
     await this.put('bookmarks', {
-      id,
+      id: this.bookmarkId(bookId, anchor),
       bookId,
       anchor,
       createdAt: Date.now()
@@ -143,8 +143,38 @@ export class LocalBookStore {
     return true;
   }
 
+  public async getBookmark(bookId: string): Promise<StoredBookmarkRecord | null> {
+    const bookmarks = await this.getBookmarksForBook(bookId);
+    if (bookmarks.length < 1) return null;
+    bookmarks.sort((a, b) => b.createdAt - a.createdAt);
+    return bookmarks[0];
+  }
+
   public async isBookmarked(bookId: string, anchor: LogicalAnchor): Promise<boolean> {
-    return (await this.get<StoredBookmarkRecord>('bookmarks', this.bookmarkId(bookId, anchor))) !== null;
+    const bookmark = await this.getBookmark(bookId);
+    return bookmark ? anchorsEqual(bookmark.anchor, anchor) : false;
+  }
+
+  public async clearBookmarks(bookId: string): Promise<void> {
+    const database = await this.openDatabase();
+    const transaction = database.transaction('bookmarks', 'readwrite');
+    const store = transaction.objectStore('bookmarks');
+    const index = store.index('bookId');
+    const request = index.openKeyCursor(IDBKeyRange.only(bookId));
+
+    await new Promise<void>((resolve, reject) => {
+      request.onerror = () => reject(request.error ?? new Error('Falha ao limpar bookmark.'));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+    });
+    await this.transactionDone(transaction);
   }
 
   public async getPreference<T>(key: string): Promise<T | null> {
@@ -165,6 +195,13 @@ export class LocalBookStore {
 
   private async getBook(bookId: string): Promise<StoredBookRecord | null> {
     return this.get<StoredBookRecord>('books', bookId);
+  }
+
+  private async getBookmarksForBook(bookId: string): Promise<StoredBookmarkRecord[]> {
+    const database = await this.openDatabase();
+    const transaction = database.transaction('bookmarks', 'readonly');
+    const request = transaction.objectStore('bookmarks').index('bookId').getAll(IDBKeyRange.only(bookId));
+    return this.request<StoredBookmarkRecord[]>(request);
   }
 
   private async readSource(book: StoredBookRecord): Promise<Blob | null> {
@@ -291,4 +328,10 @@ export class LocalBookStore {
       transaction.onabort = () => reject(transaction.error ?? new Error('Operação local cancelada.'));
     });
   }
+}
+
+function anchorsEqual(left: LogicalAnchor, right: LogicalAnchor): boolean {
+  return left.chapterId === right.chapterId
+    && left.blockId === right.blockId
+    && left.offset === right.offset;
 }
