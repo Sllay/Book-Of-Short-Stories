@@ -1,4 +1,5 @@
 import './styles.css';
+import './bookPresentation.css';
 import { App } from './core/App';
 import { registerPwa } from './pwa/register';
 

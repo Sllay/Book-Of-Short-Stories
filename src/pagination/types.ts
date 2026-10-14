@@ -15,6 +15,7 @@ export interface TypographySettings {
   readonly pageTheme: PageTheme;
   readonly paperTone: string;
   readonly inkTone: string;
+  readonly bookmarkColor: string;
 }
 
 export interface PageLine {
@@ -53,5 +54,6 @@ export const DEFAULT_TYPOGRAPHY: TypographySettings = {
   pageTurnTranslucency: false,
   pageTheme: 'light',
   paperTone: '#f2ead7',
-  inkTone: '#40362d'
+  inkTone: '#40362d',
+  bookmarkColor: '#b4483c'
 };

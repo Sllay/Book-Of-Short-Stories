@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BookPresentationController, type BookCloseReason, type BookCoverArtwork } from '../book/BookPresentationController';
 import { BookRenderer, type PageTurnDirection, type PageTurnMotion } from '../book/BookRenderer';
 import type { BookPageSource } from '../book/PageTextureCache';
 import type { PointerSnapshot, QualityProfile } from '../core/types';
@@ -12,6 +13,7 @@ export class ReaderRenderer {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
   private readonly book = new BookRenderer();
+  private readonly presentation = new BookPresentationController(this.book.root);
   private readonly hemisphere = new THREE.HemisphereLight(0xfff4dc, 0x6e5b4a, 1.55);
   private readonly keyLight = new THREE.DirectionalLight(0xffe1b0, 1.75);
   private readonly world: ReadingWorldController;
@@ -33,14 +35,18 @@ export class ReaderRenderer {
     this.renderer.shadowMap.enabled = false;
 
     this.world = new ReadingWorldController(this.hemisphere, this.keyLight);
-    this.scene.add(this.world.root, this.hemisphere, this.keyLight, this.book.root);
+    this.scene.add(this.world.root, this.hemisphere, this.keyLight, this.presentation.root);
     this.applyCameraPose();
   }
 
   public get currentPageIndex(): number { return this.book.currentLeftPageIndex; }
+  public get isBookClosed(): boolean { return this.presentation.isClosed; }
 
   public setPageChangeListener(listener: ((leftPageIndex: number) => void) | null): void {
-    this.book.setPageChangeListener(listener);
+    this.book.setPageChangeListener((pageIndex) => {
+      this.presentation.setCurrentPage(pageIndex);
+      listener?.(pageIndex);
+    });
   }
 
   public setTurnCompleteListener(listener: ((direction: PageTurnDirection) => void) | null): void {
@@ -51,8 +57,47 @@ export class ReaderRenderer {
     this.book.setTurnMotionListener(listener);
   }
 
+  public setClosedBookOpenListener(listener: ((reason: BookCloseReason) => void) | null): void {
+    this.presentation.setOpenRequestListener(listener);
+  }
+
+  public setFinishedBookListener(listener: (() => void) | null): void {
+    this.presentation.setFinishRequestListener(listener);
+  }
+
+  public setBookmarkActivateListener(listener: ((pageIndex: number) => void) | null): void {
+    this.presentation.setBookmarkRequestListener(listener);
+  }
+
   public setPublication(source: BookPageSource, initialPageIndex = 0): void {
     this.book.setPageSource(source, initialPageIndex);
+    this.presentation.setCurrentPage(this.book.currentLeftPageIndex);
+  }
+
+  public setCurrentPage(pageIndex: number): void {
+    this.book.setCurrentPage(pageIndex);
+    this.presentation.setCurrentPage(this.book.currentLeftPageIndex);
+  }
+
+  public jumpToPage(pageIndex: number): boolean {
+    return this.book.jumpToPage(pageIndex);
+  }
+
+  public setCoverArtwork(artwork: BookCoverArtwork | null): void {
+    this.presentation.setCoverArtwork(artwork);
+    this.book.setCoverEdgeColor(artwork?.edgeColor ?? 0x5a3526);
+  }
+
+  public setBookmark(pageIndex: number | null, color: string): void {
+    this.presentation.setBookmark(pageIndex, color);
+  }
+
+  public closeBook(reason: BookCloseReason, instant = false): void {
+    this.presentation.close(reason, instant);
+  }
+
+  public openBook(): void {
+    this.presentation.open();
   }
 
   public setReducedMotion(enabled: boolean): void {
@@ -95,12 +140,18 @@ export class ReaderRenderer {
 
   public updatePointer(pointer: PointerSnapshot): boolean {
     if (pointer.isDown) this.world.notifyUserGesture();
+    const presentationActive = this.presentation.handlePointer(pointer, this.camera, this.book.atEnd);
+    if (presentationActive || this.presentation.isClosed || this.presentation.isAnimating) {
+      return presentationActive || this.presentation.isAnimating;
+    }
     return this.book.handlePointer(pointer, this.camera);
   }
 
   public update(deltaMs: number): boolean {
     this.world.update(deltaMs);
-    return this.book.update(deltaMs);
+    const bookActive = this.book.update(deltaMs);
+    const presentationActive = this.presentation.update(deltaMs);
+    return bookActive || presentationActive;
   }
 
   public cancelInteraction(): void {
@@ -112,6 +163,7 @@ export class ReaderRenderer {
   }
 
   public dispose(): void {
+    this.presentation.dispose();
     this.book.dispose();
     this.world.dispose();
     this.renderer.dispose();

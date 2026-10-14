@@ -8,6 +8,7 @@ interface ReaderControlsCallbacks {
   readonly onPageTheme: (theme: PageTheme) => Promise<void> | void;
   readonly onPdfMode: (mode: PdfViewMode) => Promise<PdfViewMode>;
   readonly onToggleBookmark: () => Promise<boolean>;
+  readonly onCloseBook: () => Promise<void> | void;
   readonly onFocusMode: (enabled: boolean) => Promise<void> | void;
   readonly onAudioEnabled: (enabled: boolean) => Promise<void> | void;
 }
@@ -21,11 +22,15 @@ export class ReaderControls {
   private readonly typeButton = document.createElement('button');
   private readonly themeButton = document.createElement('button');
   private readonly bookmarkButton = document.createElement('button');
+  private readonly closeButton = document.createElement('button');
   private readonly focusButton = document.createElement('button');
   private readonly audioButton = document.createElement('button');
   private readonly fileInput = document.createElement('input');
   private readonly panel = document.createElement('div');
   private readonly status = document.createElement('div');
+  private readonly closeDialog = document.createElement('div');
+  private readonly closeDialogCancel = document.createElement('button');
+  private readonly closeDialogConfirm = document.createElement('button');
   private debounceTimer: number | null = null;
   private statusTimer: number | null = null;
   private focusEnabled = false;
@@ -34,6 +39,10 @@ export class ReaderControls {
   private pdfMode: PdfViewMode | null = null;
   private drawerOpen = false;
   private fixedLayout = false;
+  private bookmarkExists = false;
+  private currentBookmarked = false;
+  private bookClosed = false;
+  private busy = false;
 
   public constructor(
     host: HTMLElement,
@@ -65,7 +74,13 @@ export class ReaderControls {
     this.bookmarkButton.type = 'button';
     this.bookmarkButton.className = 'reader-tool-button';
     this.bookmarkButton.textContent = '☆';
-    this.bookmarkButton.title = 'Adicionar bookmark nesta página';
+    this.bookmarkButton.title = 'Marcar esta folha';
+
+    this.closeButton.type = 'button';
+    this.closeButton.className = 'reader-tool-button';
+    this.closeButton.textContent = '▣';
+    this.closeButton.title = 'Fechar o livro';
+    this.closeButton.setAttribute('aria-label', 'Fechar o livro');
 
     this.focusButton.type = 'button';
     this.focusButton.className = 'reader-tool-button focus-button';
@@ -96,6 +111,7 @@ export class ReaderControls {
       this.typeButton,
       this.themeButton,
       this.bookmarkButton,
+      this.closeButton,
       this.focusButton,
       this.audioButton
     );
@@ -111,7 +127,8 @@ export class ReaderControls {
     this.status.setAttribute('role', 'status');
     this.status.setAttribute('aria-live', 'polite');
 
-    this.root.append(this.drawer, this.panel, this.status, this.fileInput);
+    this.buildCloseDialog();
+    this.root.append(this.drawer, this.panel, this.status, this.fileInput, this.closeDialog);
     host.append(this.root);
 
     this.importButton.addEventListener('click', this.openFilePicker);
@@ -120,9 +137,12 @@ export class ReaderControls {
     this.typeButton.addEventListener('click', this.toggleTypographyPanel);
     this.themeButton.addEventListener('click', this.togglePageTheme);
     this.bookmarkButton.addEventListener('click', this.toggleBookmark);
+    this.closeButton.addEventListener('click', this.requestCloseBook);
     this.focusButton.addEventListener('click', this.toggleFocusMode);
     this.audioButton.addEventListener('click', this.toggleAudio);
     this.drawerToggle.addEventListener('click', this.toggleDrawer);
+    this.closeDialogCancel.addEventListener('click', this.hideCloseDialog);
+    this.closeDialogConfirm.addEventListener('click', this.confirmCloseBook);
 
     this.setDrawerOpen(false);
   }
@@ -130,15 +150,17 @@ export class ReaderControls {
   public setState(state: ReadingSessionState): void {
     this.fixedLayout = state.fixedLayout;
     this.pdfMode = state.pdfMode;
+    this.busy = state.busy;
     const pdfOpen = state.pdfMode !== null;
     const customizable = !pdfOpen || state.pdfMode === 'reader';
 
     this.importButton.disabled = state.busy;
     this.pdfModeButton.hidden = !pdfOpen;
-    this.pdfModeButton.disabled = state.busy || !pdfOpen;
-    this.typeButton.disabled = state.busy || !customizable;
-    this.themeButton.disabled = state.busy || !customizable;
-    this.bookmarkButton.disabled = state.busy;
+    this.pdfModeButton.disabled = state.busy || !pdfOpen || this.bookClosed;
+    this.typeButton.disabled = state.busy || !customizable || this.bookClosed;
+    this.themeButton.disabled = state.busy || !customizable || this.bookClosed;
+    this.bookmarkButton.disabled = state.busy || this.bookClosed;
+    this.closeButton.disabled = state.busy || this.bookClosed;
     this.typeButton.title = customizable ? 'Tipografia' : 'Use Reader Mode para alterar a tipografia do PDF';
     this.updatePdfModeButton();
     this.setPageTheme(this.pageTheme);
@@ -155,10 +177,29 @@ export class ReaderControls {
     }
   }
 
+  public setBookmarkState(exists: boolean, currentPageBookmarked: boolean): void {
+    this.bookmarkExists = exists;
+    this.currentBookmarked = currentPageBookmarked;
+    this.bookmarkButton.textContent = this.currentBookmarked ? '🔖' : (exists ? '↟' : '☆');
+    this.bookmarkButton.classList.toggle('is-active', this.currentBookmarked);
+    this.bookmarkButton.title = this.currentBookmarked
+      ? 'Remover marcação desta folha'
+      : (exists ? 'Mover a marcação para esta folha' : 'Marcar esta folha');
+  }
+
   public setBookmarked(bookmarked: boolean): void {
-    this.bookmarkButton.textContent = bookmarked ? '🔖' : '☆';
-    this.bookmarkButton.classList.toggle('is-active', bookmarked);
-    this.bookmarkButton.title = bookmarked ? 'Remover bookmark desta página' : 'Adicionar bookmark nesta página';
+    this.setBookmarkState(bookmarked, bookmarked);
+  }
+
+  public setBookClosed(closed: boolean): void {
+    this.bookClosed = closed;
+    this.closeButton.disabled = closed || this.busy;
+    this.bookmarkButton.disabled = closed || this.busy;
+    this.pdfModeButton.disabled = closed || this.busy || this.pdfMode === null;
+    if (closed && !this.panel.hidden) {
+      this.panel.hidden = true;
+      this.typeButton.classList.remove('is-active');
+    }
   }
 
   public setFocusMode(enabled: boolean): void {
@@ -209,9 +250,12 @@ export class ReaderControls {
     this.typeButton.removeEventListener('click', this.toggleTypographyPanel);
     this.themeButton.removeEventListener('click', this.togglePageTheme);
     this.bookmarkButton.removeEventListener('click', this.toggleBookmark);
+    this.closeButton.removeEventListener('click', this.requestCloseBook);
     this.focusButton.removeEventListener('click', this.toggleFocusMode);
     this.audioButton.removeEventListener('click', this.toggleAudio);
     this.drawerToggle.removeEventListener('click', this.toggleDrawer);
+    this.closeDialogCancel.removeEventListener('click', this.hideCloseDialog);
+    this.closeDialogConfirm.removeEventListener('click', this.confirmCloseBook);
     this.root.remove();
   }
 
@@ -253,6 +297,13 @@ export class ReaderControls {
     }
     paper.addEventListener('change', () => this.applyTypography({ paperTone: paper.value }));
 
+    const bookmarkColor = document.createElement('input');
+    bookmarkColor.type = 'color';
+    bookmarkColor.className = 'reader-color';
+    bookmarkColor.value = settings.bookmarkColor ?? '#b4483c';
+    bookmarkColor.setAttribute('aria-label', 'Cor da marcação de página');
+    bookmarkColor.addEventListener('change', () => this.applyTypography({ bookmarkColor: bookmarkColor.value }));
+
     this.panel.append(
       this.createField('Fonte', font),
       this.createField('Tamanho', fontSize),
@@ -260,8 +311,36 @@ export class ReaderControls {
       this.createField('Margens', margin),
       this.createField('Numeração', pageNumberScale),
       this.createField('Translucidez', pageTurnTranslucency),
-      this.createField('Papel', paper)
+      this.createField('Papel', paper),
+      this.createField('Marcador', bookmarkColor)
     );
+  }
+
+  private buildCloseDialog(): void {
+    this.closeDialog.className = 'reader-close-dialog';
+    this.closeDialog.hidden = true;
+    this.closeDialog.setAttribute('role', 'dialog');
+    this.closeDialog.setAttribute('aria-modal', 'true');
+    this.closeDialog.setAttribute('aria-label', 'Fechar livro sem marcação');
+
+    const card = document.createElement('div');
+    card.className = 'reader-close-card';
+    const title = document.createElement('strong');
+    title.textContent = 'Fechar sem marcar a folha?';
+    const message = document.createElement('p');
+    message.textContent = 'Sem uma marcação, ao abrir o livro novamente ele começa na primeira folha.';
+    const actions = document.createElement('div');
+    actions.className = 'reader-close-actions';
+
+    this.closeDialogCancel.type = 'button';
+    this.closeDialogCancel.className = 'reader-close-action';
+    this.closeDialogCancel.textContent = 'Cancelar';
+    this.closeDialogConfirm.type = 'button';
+    this.closeDialogConfirm.className = 'reader-close-action is-primary';
+    this.closeDialogConfirm.textContent = 'Fechar';
+    actions.append(this.closeDialogCancel, this.closeDialogConfirm);
+    card.append(title, message, actions);
+    this.closeDialog.append(card);
   }
 
   private createRange(
@@ -391,6 +470,17 @@ export class ReaderControls {
     this.status.classList.remove('is-visible', 'is-busy', 'is-error');
   }
 
+  private performCloseBook(): void {
+    this.closeButton.disabled = true;
+    void Promise.resolve(this.callbacks.onCloseBook())
+      .catch((error: unknown) => {
+        this.showError(error instanceof Error ? error.message : 'Não foi possível fechar o livro.');
+      })
+      .finally(() => {
+        if (!this.bookClosed) this.closeButton.disabled = false;
+      });
+  }
+
   private readonly toggleDrawer = (): void => {
     this.setDrawerOpen(!this.drawerOpen);
   };
@@ -410,13 +500,13 @@ export class ReaderControls {
   };
 
   private readonly toggleTypographyPanel = (): void => {
-    if (this.fixedLayout) return;
+    if (this.fixedLayout || this.bookClosed) return;
     this.panel.hidden = !this.panel.hidden;
     this.typeButton.classList.toggle('is-active', !this.panel.hidden);
   };
 
   private readonly togglePageTheme = (): void => {
-    if (this.fixedLayout) return;
+    if (this.fixedLayout || this.bookClosed) return;
     const previous = this.pageTheme;
     const next: PageTheme = previous === 'dark' ? 'light' : 'dark';
     this.setPageTheme(next);
@@ -428,7 +518,7 @@ export class ReaderControls {
   };
 
   private readonly togglePdfMode = (): void => {
-    if (!this.pdfMode) return;
+    if (!this.pdfMode || this.bookClosed) return;
     const previous = this.pdfMode;
     const requested: PdfViewMode = previous === 'reader' ? 'original' : 'reader';
     this.pdfModeButton.disabled = true;
@@ -448,19 +538,38 @@ export class ReaderControls {
         this.showError(error instanceof Error ? error.message : 'Não foi possível trocar o modo do PDF.');
       })
       .finally(() => {
-        this.pdfModeButton.disabled = false;
+        this.pdfModeButton.disabled = this.bookClosed;
       });
   };
 
   private readonly toggleBookmark = (): void => {
+    if (this.bookClosed) return;
     void this.callbacks.onToggleBookmark()
       .then((bookmarked) => {
-        this.setBookmarked(bookmarked);
-        this.showMessage(bookmarked ? 'Bookmark salvo' : 'Bookmark removido');
+        this.currentBookmarked = bookmarked;
+        this.showMessage(bookmarked ? 'Folha marcada' : 'Marcação removida');
       })
       .catch((error: unknown) => {
-        this.showError(error instanceof Error ? error.message : 'Não foi possível alterar o bookmark.');
+        this.showError(error instanceof Error ? error.message : 'Não foi possível alterar a marcação.');
       });
+  };
+
+  private readonly requestCloseBook = (): void => {
+    if (this.bookClosed || this.busy) return;
+    if (this.bookmarkExists) {
+      this.performCloseBook();
+      return;
+    }
+    this.closeDialog.hidden = false;
+  };
+
+  private readonly hideCloseDialog = (): void => {
+    this.closeDialog.hidden = true;
+  };
+
+  private readonly confirmCloseBook = (): void => {
+    this.closeDialog.hidden = true;
+    this.performCloseBook();
   };
 
   private readonly toggleFocusMode = (): void => {
