@@ -4,6 +4,21 @@ import type { BookCoverArtwork } from '../book/BookPresentationController';
 import { loadPdfPublication } from './PdfDocumentLoader';
 
 const TARGET_HEIGHT = 896;
+const COLOR_BUCKET = 32;
+const CLUSTER_DISTANCE = 58;
+
+interface BorderSample {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+interface BucketStats {
+  count: number;
+  red: number;
+  green: number;
+  blue: number;
+}
 
 export async function createPdfCoverArtworkFromBytes(
   sourceName: string,
@@ -49,40 +64,66 @@ export async function createPdfCoverArtwork(document: PDFDocumentProxy): Promise
 
   return {
     texture,
-    edgeColor: sampleBorderColor(context, canvas.width, canvas.height)
+    edgeColor: sampleDominantBorderColor(context, canvas.width, canvas.height)
   };
 }
 
-function sampleBorderColor(context: CanvasRenderingContext2D, width: number, height: number): number {
-  const sampleWidth = Math.max(2, Math.floor(width * 0.045));
-  const sampleHeight = Math.max(2, Math.floor(height * 0.045));
-  const image = context.getImageData(0, 0, width, height).data;
+function sampleDominantBorderColor(context: CanvasRenderingContext2D, width: number, height: number): number {
+  const borderX = Math.max(3, Math.floor(width * 0.065));
+  const borderY = Math.max(3, Math.floor(height * 0.065));
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 260));
+  const samples: BorderSample[] = [];
+  const buckets = new Map<string, BucketStats>();
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (x >= borderX && x < width - borderX && y >= borderY && y < height - borderY) continue;
+      const offset = (y * width + x) * 4;
+      const sample: BorderSample = {
+        r: pixels[offset],
+        g: pixels[offset + 1],
+        b: pixels[offset + 2]
+      };
+      samples.push(sample);
+
+      const key = bucketKey(sample);
+      const bucket = buckets.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
+      bucket.count += 1;
+      bucket.red += sample.r;
+      bucket.green += sample.g;
+      bucket.blue += sample.b;
+      buckets.set(key, bucket);
+    }
+  }
+
+  if (samples.length === 0 || buckets.size === 0) return 0x5a3526;
+
+  let dominant: BucketStats | null = null;
+  for (const bucket of buckets.values()) {
+    if (!dominant || bucket.count > dominant.count) dominant = bucket;
+  }
+  if (!dominant || dominant.count <= 0) return 0x5a3526;
+
+  const seed = {
+    r: dominant.red / dominant.count,
+    g: dominant.green / dominant.count,
+    b: dominant.blue / dominant.count
+  };
+
   let red = 0;
   let green = 0;
   let blue = 0;
   let weight = 0;
-
-  const addPixel = (x: number, y: number): void => {
-    const offset = (y * width + x) * 4;
-    const r = image[offset];
-    const g = image[offset + 1];
-    const b = image[offset + 2];
-    const luminance = (r + g + b) / 3;
-    const saturation = Math.max(r, g, b) - Math.min(r, g, b);
-    const pixelWeight = luminance > 247 && saturation < 8 ? 0.18 : 1;
-    red += r * pixelWeight;
-    green += g * pixelWeight;
-    blue += b * pixelWeight;
-    weight += pixelWeight;
-  };
-
-  const step = Math.max(1, Math.floor(Math.min(width, height) / 220));
-  for (let y = 0; y < height; y += step) {
-    for (let x = 0; x < width; x += step) {
-      if (x < sampleWidth || x >= width - sampleWidth || y < sampleHeight || y >= height - sampleHeight) {
-        addPixel(x, y);
-      }
-    }
+  for (const sample of samples) {
+    const distance = Math.hypot(sample.r - seed.r, sample.g - seed.g, sample.b - seed.b);
+    if (distance > CLUSTER_DISTANCE) continue;
+    const closeness = 1 - distance / CLUSTER_DISTANCE;
+    const sampleWeight = 0.35 + closeness * closeness * 0.65;
+    red += sample.r * sampleWeight;
+    green += sample.g * sampleWeight;
+    blue += sample.b * sampleWeight;
+    weight += sampleWeight;
   }
 
   if (weight <= 0) return 0x5a3526;
@@ -94,6 +135,14 @@ function sampleBorderColor(context: CanvasRenderingContext2D, width: number, hei
 
   const hsl = { h: 0, s: 0, l: 0 };
   color.getHSL(hsl);
-  color.setHSL(hsl.h, Math.min(0.72, Math.max(0.12, hsl.s)), Math.min(0.56, Math.max(0.18, hsl.l * 0.82)));
+  color.setHSL(
+    hsl.h,
+    THREE.MathUtils.clamp(hsl.s, 0, 0.82),
+    THREE.MathUtils.clamp(hsl.l, 0.055, 0.84)
+  );
   return color.getHex();
+}
+
+function bucketKey(sample: BorderSample): string {
+  return `${Math.floor(sample.r / COLOR_BUCKET)}:${Math.floor(sample.g / COLOR_BUCKET)}:${Math.floor(sample.b / COLOR_BUCKET)}`;
 }
