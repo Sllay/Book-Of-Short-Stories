@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { AmbientWeatherAudio } from '../audio/AmbientWeatherAudio';
+import { BirdFlockOverlay } from './BirdFlockOverlay';
 import { CandleRig } from './CandleRig';
+import { ClockRig } from './ClockRig';
 import { MirrorAtmosphere, type MirrorCelestialState } from './MirrorAtmosphere';
 import { RoomScene } from './RoomScene';
 import { WeatherController, type WeatherSnapshot } from './WeatherController';
@@ -43,14 +46,19 @@ export class ReadingWorldController {
   private readonly weather = new WeatherController();
   private readonly room = new RoomScene();
   private readonly candle = new CandleRig();
+  private readonly clock = new ClockRig();
   private readonly mirrorAtmosphere = new MirrorAtmosphere();
+  private readonly birds = new BirdFlockOverlay();
+  private readonly ambientAudio = new AmbientWeatherAudio();
   private readonly mirrorMaterial: THREE.MeshBasicMaterial;
+  private readonly birdOverlayMaterial: THREE.MeshBasicMaterial;
   private readonly beamMaterials: THREE.MeshBasicMaterial[] = [];
   private baseKeyIntensity = 1;
   private baseHemisphereIntensity = 1;
   private ambientSeconds = 0;
   private lastClockMinute = -1;
-  private lastReflectionTick = -1;
+  private lastAtmosphereRenderAt = 0;
+  private lastBirdUpdateAt = 0;
   private focusMode = false;
   private currentPalette: WorldPalette = samplePalette(new Date());
   private currentWeather: WeatherSnapshot = this.weather.current();
@@ -62,7 +70,7 @@ export class ReadingWorldController {
     private readonly hemisphere: THREE.HemisphereLight,
     private readonly keyLight: THREE.DirectionalLight
   ) {
-    this.root.add(this.room.root);
+    this.root.add(this.room.root, this.clock.root);
 
     this.mirrorMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       map: this.mirrorAtmosphere.texture,
@@ -71,6 +79,15 @@ export class ReadingWorldController {
       toneMapped: false,
       side: THREE.DoubleSide
     }));
+    this.birdOverlayMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      map: this.birds.texture,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide
+    }));
+
     this.root.add(this.createMirror());
     this.root.add(this.createWindowBeams());
     this.root.add(this.candle.root, this.candle.light);
@@ -81,26 +98,43 @@ export class ReadingWorldController {
     if (this.focusMode === enabled) return;
     this.focusMode = enabled;
     this.mirrorMaterial.opacity = enabled ? 0.26 : 0.88;
+    this.birdOverlayMaterial.opacity = enabled ? 0.12 : 0.82;
     this.candle.setFocusMode(enabled);
     this.refreshClock(true);
+  }
+
+  public notifyUserGesture(): void {
+    this.ambientAudio.unlockFromGesture();
   }
 
   public update(deltaMs: number): void {
     const safeDelta = Math.max(0, Math.min(100, deltaMs));
     this.ambientSeconds += safeDelta / 1000;
     const now = new Date();
+    const nowMs = now.getTime();
 
+    this.refreshClock(false);
+    this.clock.update(now);
     this.candle.update(now, safeDelta, this.ambientSeconds);
     this.updateLightning(safeDelta);
     this.updateWindowBeams();
+    this.ambientAudio.update(this.currentWeather.rainIntensity, this.lightningPulse);
 
     this.keyLight.intensity = this.baseKeyIntensity + this.lightningPulse * 2.7;
     this.hemisphere.intensity = this.baseHemisphereIntensity + this.lightningPulse * 0.62;
 
-    const reflectionTick = Math.floor(Date.now() / 1000);
-    if (reflectionTick !== this.lastReflectionTick) {
-      this.lastReflectionTick = reflectionTick;
-      this.refreshClock(true);
+    const birdInterval = this.birds.active ? 90 : 1000;
+    if (nowMs - this.lastBirdUpdateAt >= birdInterval) {
+      this.lastBirdUpdateAt = nowMs;
+      this.birds.update(now, this.currentWeather);
+    }
+
+    const atmosphereInterval = this.currentWeather.rainIntensity > 0.03 || this.lightningPulse > 0.002
+      ? 110
+      : 1000;
+    if (nowMs - this.lastAtmosphereRenderAt >= atmosphereInterval) {
+      this.lastAtmosphereRenderAt = nowMs;
+      this.renderAtmosphere(now);
     }
   }
 
@@ -114,17 +148,14 @@ export class ReadingWorldController {
     this.currentWeather = this.weather.current(now);
     this.currentCelestial = celestialState(now);
     this.applyLighting(now);
-    this.mirrorAtmosphere.draw(
-      now,
-      this.currentPalette,
-      this.currentWeather,
-      this.currentCelestial,
-      this.ambientSeconds,
-      this.lightningPulse
-    );
+    this.clock.update(now, true);
+    this.renderAtmosphere(now);
   }
 
   public dispose(): void {
+    this.ambientAudio.dispose();
+    this.birds.dispose();
+    this.clock.dispose();
     this.room.dispose();
     this.candle.dispose();
     this.mirrorAtmosphere.dispose();
@@ -141,6 +172,10 @@ export class ReadingWorldController {
     const panel = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.76, 52)), this.mirrorMaterial);
     panel.position.z = 0.035;
     mirror.add(panel);
+
+    const birdOverlay = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.758, 52)), this.birdOverlayMaterial);
+    birdOverlay.position.z = 0.039;
+    mirror.add(birdOverlay);
 
     const frameMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x382920,
@@ -261,6 +296,17 @@ export class ReadingWorldController {
 
     this.lightningPulse *= Math.exp(-deltaMs / 115);
     if (this.lightningPulse < 0.002) this.lightningPulse = 0;
+  }
+
+  private renderAtmosphere(now: Date): void {
+    this.mirrorAtmosphere.draw(
+      now,
+      this.currentPalette,
+      this.currentWeather,
+      this.currentCelestial,
+      this.ambientSeconds,
+      this.lightningPulse
+    );
   }
 
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
