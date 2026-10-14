@@ -7,6 +7,10 @@ const CLOSED_HEIGHT = 3.17;
 const BOOK_PAGE_WIDTH = 2.3;
 const BOOK_PAGE_HEIGHT = 2.95;
 const CLOSED_HOME_X = BOOK_PAGE_WIDTH * 0.5;
+const BOOKMARK_X = 2.02;
+const BOOKMARK_Y = BOOK_PAGE_HEIGHT * 0.5 + 0.18;
+const BOOKMARK_Z = 0.13;
+const BOOKMARK_TRANSITION_MS = 300;
 
 export type BookCloseReason = 'manual' | 'finished' | 'import';
 
@@ -16,6 +20,7 @@ export interface BookCoverArtwork {
 }
 
 type PresentationPhase = 'open' | 'closing' | 'closed' | 'opening' | 'finished-flip';
+type BookmarkSide = 'left' | 'right';
 
 interface EndGesture {
   readonly pointerId: number;
@@ -49,6 +54,10 @@ export class BookPresentationController {
   private endGesture: EndGesture | null = null;
   private bookmarkPage: number | null = null;
   private currentLeftPage = 0;
+  private bookmarkSide: BookmarkSide | null = null;
+  private bookmarkTargetSide: BookmarkSide | null = null;
+  private bookmarkTransitionElapsedMs = 0;
+  private bookmarkTransitionActive = false;
   private openRequestListener: ((reason: BookCloseReason) => void) | null = null;
   private finishRequestListener: (() => void) | null = null;
   private bookmarkRequestListener: ((pageIndex: number) => void) | null = null;
@@ -123,13 +132,16 @@ export class BookPresentationController {
       color: 0xb4483c,
       roughness: 0.92,
       metalness: 0,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false
     }));
     this.bookmarkTab = new THREE.Mesh(
       this.trackGeometry(new THREE.PlaneGeometry(0.27, 0.58)),
       this.bookmarkMaterial
     );
-    this.bookmarkTab.position.set(1.82, BOOK_PAGE_HEIGHT * 0.5 + 0.12, 0.16);
+    this.applyBookmarkSide('right');
     this.bookmarkTab.visible = false;
     this.book.root.add(this.bookmarkTab);
 
@@ -175,14 +187,25 @@ export class BookPresentationController {
 
   public setCurrentPage(leftPageIndex: number): void {
     this.currentLeftPage = Math.max(0, Math.floor(leftPageIndex / 2) * 2);
-    this.positionBookmark();
+    this.syncBookmarkPosition(true);
   }
 
   public setBookmark(pageIndex: number | null, color: string): void {
     this.bookmarkPage = pageIndex === null ? null : Math.max(0, Math.floor(pageIndex));
     this.bookmarkMaterial.color.set(color);
-    this.bookmarkTab.visible = this.bookmarkPage !== null && this.phase === 'open';
-    this.positionBookmark();
+
+    if (this.bookmarkPage === null) {
+      this.bookmarkTab.visible = false;
+      this.bookmarkSide = null;
+      this.bookmarkTargetSide = null;
+      this.bookmarkTransitionActive = false;
+      this.bookmarkTransitionElapsedMs = 0;
+      this.bookmarkMaterial.opacity = 1;
+      return;
+    }
+
+    this.bookmarkTab.visible = this.phase === 'open';
+    this.syncBookmarkPosition(this.bookmarkSide !== null);
   }
 
   public close(reason: BookCloseReason, instant = false): void {
@@ -191,6 +214,9 @@ export class BookPresentationController {
     this.endGesture = null;
     this.pointerWasDown = false;
     this.bookmarkTab.visible = false;
+    this.bookmarkTransitionActive = false;
+    this.bookmarkTransitionElapsedMs = 0;
+    this.bookmarkMaterial.opacity = 1;
 
     if (instant) {
       this.phase = 'closed';
@@ -225,6 +251,8 @@ export class BookPresentationController {
     this.book.root.visible = true;
     this.book.setPhysicalFold('left', 1);
     this.bookmarkTab.visible = false;
+    this.bookmarkTransitionActive = false;
+    this.bookmarkMaterial.opacity = 1;
     this.setClosedOpacity(1);
   }
 
@@ -249,7 +277,12 @@ export class BookPresentationController {
     }
 
     if (pointer.isDown && !this.pointerWasDown) {
-      if (this.bookmarkPage !== null && this.bookmarkTab.visible && this.hit(pointer, camera, this.bookmarkTab)) {
+      if (
+        this.bookmarkPage !== null
+        && this.bookmarkTab.visible
+        && this.bookmarkMaterial.opacity > 0.3
+        && this.hit(pointer, camera, this.bookmarkTab)
+      ) {
         this.bookmarkRequestListener?.(this.bookmarkPage);
         this.pointerWasDown = true;
         return true;
@@ -340,12 +373,12 @@ export class BookPresentationController {
         this.book.resetPhysicalFold();
         this.book.root.visible = true;
         this.bookmarkTab.visible = this.bookmarkPage !== null;
-        this.positionBookmark();
+        this.syncBookmarkPosition(false);
       }
       return true;
     }
 
-    return false;
+    return this.updateBookmarkTransition(delta);
   }
 
   public dispose(): void {
@@ -358,22 +391,83 @@ export class BookPresentationController {
     for (const material of this.materials) material.dispose();
   }
 
-  private positionBookmark(): void {
-    if (this.bookmarkPage === null) return;
+  private desiredBookmarkSide(): BookmarkSide | null {
+    if (this.bookmarkPage === null) return null;
     const targetLeft = Math.floor(this.bookmarkPage / 2) * 2;
-    const delta = targetLeft - this.currentLeftPage;
+    if (targetLeft < this.currentLeftPage) return 'left';
+    if (targetLeft > this.currentLeftPage) return 'right';
+    return this.bookmarkPage % 2 === 0 ? 'left' : 'right';
+  }
 
-    if (delta < 0) {
-      this.bookmarkTab.position.set(-2.02, BOOK_PAGE_HEIGHT * 0.5 + 0.18, 0.13);
-      this.bookmarkTab.rotation.z = -0.025;
-    } else if (delta > 0) {
-      this.bookmarkTab.position.set(2.02, BOOK_PAGE_HEIGHT * 0.5 + 0.18, 0.13);
-      this.bookmarkTab.rotation.z = 0.025;
-    } else {
-      const onLeftPage = this.bookmarkPage % 2 === 0;
-      this.bookmarkTab.position.set(onLeftPage ? -1.72 : 1.72, BOOK_PAGE_HEIGHT * 0.5 + 0.06, 0.15);
-      this.bookmarkTab.rotation.z = onLeftPage ? -0.015 : 0.015;
+  private syncBookmarkPosition(animate: boolean): void {
+    const desired = this.desiredBookmarkSide();
+    if (!desired) {
+      this.bookmarkTab.visible = false;
+      this.bookmarkSide = null;
+      this.bookmarkTargetSide = null;
+      this.bookmarkTransitionActive = false;
+      this.bookmarkMaterial.opacity = 1;
+      return;
     }
+
+    if (this.bookmarkSide === null || !animate || this.phase !== 'open') {
+      this.bookmarkSide = desired;
+      this.bookmarkTargetSide = desired;
+      this.bookmarkTransitionActive = false;
+      this.bookmarkTransitionElapsedMs = 0;
+      this.bookmarkMaterial.opacity = 1;
+      this.applyBookmarkSide(desired);
+      this.bookmarkTab.visible = this.phase === 'open';
+      return;
+    }
+
+    if (desired === this.bookmarkSide) {
+      this.bookmarkTargetSide = desired;
+      this.bookmarkTransitionActive = false;
+      this.bookmarkTransitionElapsedMs = 0;
+      this.bookmarkMaterial.opacity = 1;
+      this.applyBookmarkSide(desired);
+      this.bookmarkTab.visible = this.phase === 'open';
+      return;
+    }
+
+    if (this.bookmarkTransitionActive && desired === this.bookmarkTargetSide) return;
+
+    this.bookmarkTargetSide = desired;
+    this.bookmarkTransitionElapsedMs = 0;
+    this.bookmarkTransitionActive = true;
+    this.bookmarkMaterial.opacity = 1;
+    this.bookmarkTab.visible = this.phase === 'open';
+  }
+
+  private updateBookmarkTransition(deltaMs: number): boolean {
+    if (!this.bookmarkTransitionActive || this.phase !== 'open' || this.bookmarkPage === null) return false;
+
+    this.bookmarkTransitionElapsedMs += deltaMs;
+    const t = THREE.MathUtils.clamp(this.bookmarkTransitionElapsedMs / BOOKMARK_TRANSITION_MS, 0, 1);
+
+    if (t < 0.5) {
+      this.bookmarkMaterial.opacity = 1 - THREE.MathUtils.smoothstep(t / 0.5, 0, 1);
+    } else {
+      if (this.bookmarkTargetSide && this.bookmarkSide !== this.bookmarkTargetSide) {
+        this.bookmarkSide = this.bookmarkTargetSide;
+        this.applyBookmarkSide(this.bookmarkSide);
+      }
+      this.bookmarkMaterial.opacity = THREE.MathUtils.smoothstep((t - 0.5) / 0.5, 0, 1);
+    }
+
+    if (t >= 1) {
+      this.bookmarkTransitionActive = false;
+      this.bookmarkTransitionElapsedMs = 0;
+      this.bookmarkMaterial.opacity = 1;
+      return false;
+    }
+    return true;
+  }
+
+  private applyBookmarkSide(side: BookmarkSide): void {
+    this.bookmarkTab.position.set(side === 'left' ? -BOOKMARK_X : BOOKMARK_X, BOOKMARK_Y, BOOKMARK_Z);
+    this.bookmarkTab.rotation.z = side === 'left' ? -0.025 : 0.025;
   }
 
   private hit(pointer: PointerSnapshot, camera: THREE.Camera, object: THREE.Object3D): boolean {
