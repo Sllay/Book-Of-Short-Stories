@@ -30,6 +30,7 @@ interface ScreenWakeLockManager {
 }
 
 const PHYSICAL_BOOKMARK_CHAPTER = 'physical-page';
+const COVER_COLOR_PREFERENCE_PREFIX = 'coverColor:';
 
 export class App {
   private readonly shell: HTMLDivElement;
@@ -70,7 +71,7 @@ export class App {
 
     const label = document.createElement('div');
     label.className = 'foundation-label';
-    label.textContent = 'V2.1.7 • Physical Cover + Bookmark';
+    label.textContent = 'V2.1.9 • Cover Color + Settings Sync';
 
     const hint = document.createElement('div');
     hint.className = 'interaction-hint';
@@ -120,6 +121,7 @@ export class App {
     this.controls = new ReaderControls(this.shell, this.session.typography, {
       onImport: this.handleImport,
       onTypography: this.handleTypography,
+      onCoverColor: this.handleCoverColor,
       onPageTheme: this.handlePageTheme,
       onPdfMode: this.handlePdfMode,
       onToggleBookmark: this.handleToggleBookmark,
@@ -132,6 +134,8 @@ export class App {
       this.controls.setState(state);
       if (!state.busy) {
         this.controls.setPageTheme(this.session.typography.pageTheme);
+        this.controls.setBookmarkColor(this.session.typography.bookmarkColor);
+        this.controls.setCoverColor(this.renderer.coverColor);
         void this.refreshBookmark();
       }
     });
@@ -208,6 +212,7 @@ export class App {
           anchor: progress?.anchor,
           typography: progress?.typography
         });
+        await this.applySavedCoverColor(recent.book.id);
         this.controls.setBookClosed(false);
         this.controls.showMessage(`${recent.book.title} • restaurado do dispositivo`);
       } else if (recent?.book.sourceType === 'pdf') {
@@ -224,6 +229,7 @@ export class App {
         }, recent.book.id);
         const artwork = await coverPromise;
         this.renderer.setCoverArtwork(artwork);
+        await this.applySavedCoverColor(recent.book.id);
         this.controls.setBookClosed(false);
         this.controls.showMessage(`${recent.book.title} • ${publication.mode === 'reader' ? 'Reader Mode' : 'PDF Original'} restaurado`);
       } else {
@@ -246,7 +252,9 @@ export class App {
   private async loadSampleBook(): Promise<void> {
     this.persistedBookId = null;
     this.renderer.setCoverArtwork(null);
+    this.controls.setCoverColor(this.renderer.coverColor);
     this.renderer.setBookmark(null, this.session.typography.bookmarkColor);
+    this.controls.setBookmarkColor(this.session.typography.bookmarkColor);
     this.controls.setBookmarkState(false, false);
     this.controls.setBookClosed(false);
     await this.session.loadDocument(createSampleBookDocument());
@@ -270,6 +278,7 @@ export class App {
         mimeType: file.type || 'text/plain'
       }, file);
       this.persistedBookId = documentModel.id;
+      await this.applySavedCoverColor(documentModel.id);
     } else if (sourceType === 'pdf') {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const coverBytes = Uint8Array.from(bytes);
@@ -292,6 +301,7 @@ export class App {
         mimeType: file.type || 'application/pdf'
       }, file);
       this.persistedBookId = publication.id;
+      await this.applySavedCoverColor(publication.id);
       this.controls.showMessage(
         publication.mode === 'reader'
           ? `${publication.title} • Reader Mode • ${publication.pageCount} páginas`
@@ -303,6 +313,7 @@ export class App {
       throw new Error('Formato ainda não suportado. Use TXT ou PDF.');
     }
 
+    this.controls.setBookmarkColor(this.session.typography.bookmarkColor);
     this.renderer.setCurrentPage(0);
     await this.persistCurrentProgress();
     await this.refreshBookmark();
@@ -313,10 +324,24 @@ export class App {
 
   private readonly handleTypography = async (patch: Partial<TypographySettings>): Promise<void> => {
     await this.session.updateTypography(patch);
+    this.controls.setBookmarkColor(this.session.typography.bookmarkColor);
     await this.persistCurrentProgress();
     await this.refreshBookmark();
     this.metrics.reset();
     this.scheduler.resetTiming();
+    this.scheduler.invalidate();
+  };
+
+  private readonly handleCoverColor = async (color: string): Promise<void> => {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    this.renderer.setCoverColor(color);
+    this.controls.setCoverColor(this.renderer.coverColor);
+
+    const bookId = this.session.currentBookId;
+    if (bookId && bookId === this.persistedBookId) {
+      await this.storage.setPreference(this.coverColorPreferenceKey(bookId), this.renderer.coverColor);
+    }
+
     this.scheduler.invalidate();
   };
 
@@ -467,9 +492,24 @@ export class App {
     await this.storage.saveProgress(snapshot);
   }
 
+  private async applySavedCoverColor(bookId: string): Promise<void> {
+    const saved = await this.storage.getPreference<string>(this.coverColorPreferenceKey(bookId));
+    if (saved && /^#[0-9a-f]{6}$/i.test(saved)) {
+      this.renderer.setCoverColor(saved);
+    }
+    this.controls.setCoverColor(this.renderer.coverColor);
+    this.scheduler.invalidate();
+  }
+
+  private coverColorPreferenceKey(bookId: string): string {
+    return `${COVER_COLOR_PREFERENCE_PREFIX}${bookId}`;
+  }
+
   private async refreshBookmark(): Promise<void> {
     const token = ++this.bookmarkRefreshToken;
     const bookId = this.session.currentBookId;
+    this.controls.setBookmarkColor(this.session.typography.bookmarkColor);
+
     if (!bookId || bookId !== this.persistedBookId) {
       if (token === this.bookmarkRefreshToken) {
         this.renderer.setBookmark(null, this.session.typography.bookmarkColor);
