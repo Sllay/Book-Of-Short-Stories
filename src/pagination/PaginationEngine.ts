@@ -70,10 +70,15 @@ export class PaginationEngine {
     for (const chapter of documentModel.chapters) {
       for (const block of chapter.blocks) {
         const isHeading = block.kind === 'heading';
-        const fontSize = isHeading ? Math.round(settings.fontSize * 1.24) : settings.fontSize;
+        const hasSourceScale = typeof block.visualScale === 'number';
+        const visualScale = Math.max(0.92, Math.min(1.24, block.visualScale ?? (isHeading ? 1.24 : 1)));
+        const fontSize = Math.max(1, Math.round(settings.fontSize * visualScale));
         const fontWeight: 400 | 600 = isHeading ? 600 : 400;
-        const lineHeightPx = fontSize * (isHeading ? 1.34 : settings.lineHeight);
-        const defaultSpacingAfter = isHeading ? settings.paragraphSpacing * 1.35 : settings.paragraphSpacing;
+        const headingLineHeight = hasSourceScale ? 1.25 : 1.34;
+        const lineHeightPx = fontSize * (isHeading ? headingLineHeight : settings.lineHeight);
+        const defaultSpacingAfter = isHeading
+          ? settings.paragraphSpacing * (hasSourceScale ? 0.78 : 1.35)
+          : settings.paragraphSpacing;
         const spacingBefore = Math.max(0, block.spacingBefore ?? 0);
         const spacingAfter = Math.max(0, block.spacingAfter ?? defaultSpacingAfter);
         const align = block.align ?? 'left';
@@ -86,7 +91,6 @@ export class PaginationEngine {
           else currentY += spacingBefore;
         }
 
-        // Avoid leaving a heading stranded as the final line of a page when possible.
         if (isHeading && currentLines.length > 0 && currentY + lineHeightPx * Math.min(2, wrapped.length) > bottomLimit) {
           commitPage();
         }
@@ -114,8 +118,6 @@ export class PaginationEngine {
         currentY += spacingAfter;
         processedBlocks += 1;
 
-        // Yield periodically so large documents cannot monopolize the main thread for
-        // the complete pagination pass. PDF parsing itself already lives in PDF.js' worker.
         if (processedBlocks % 12 === 0) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
