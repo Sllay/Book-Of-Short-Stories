@@ -180,9 +180,9 @@ export class ReaderControls {
   public setBookmarkState(exists: boolean, currentPageBookmarked: boolean): void {
     this.bookmarkExists = exists;
     this.currentBookmarked = currentPageBookmarked;
-    this.bookmarkButton.textContent = currentPageBookmarked ? '🔖' : (exists ? '↟' : '☆');
-    this.bookmarkButton.classList.toggle('is-active', currentPageBookmarked);
-    this.bookmarkButton.title = currentPageBookmarked
+    this.bookmarkButton.textContent = this.currentBookmarked ? '🔖' : (exists ? '↟' : '☆');
+    this.bookmarkButton.classList.toggle('is-active', this.currentBookmarked);
+    this.bookmarkButton.title = this.currentBookmarked
       ? 'Remover marcação desta folha'
       : (exists ? 'Mover a marcação para esta folha' : 'Marcar esta folha');
   }
