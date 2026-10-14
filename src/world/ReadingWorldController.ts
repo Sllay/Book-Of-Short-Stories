@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createWaxTexture, createWoodTexture } from './WorldMaterialTextures';
+import { WeatherController, type WeatherSnapshot } from './WeatherController';
 
 interface WorldPalette {
   readonly skyTop: number;
@@ -17,14 +18,25 @@ interface PaletteStop extends WorldPalette {
   readonly hour: number;
 }
 
+interface CelestialState {
+  readonly sunStrength: number;
+  readonly moonStrength: number;
+  readonly sunT: number;
+  readonly moonT: number;
+  readonly starsStrength: number;
+}
+
 const PALETTE_STOPS: readonly PaletteStop[] = [
-  { hour: 0, skyTop: 0x07101f, skyBottom: 0x18233d, ambientSky: 0x8ba6cf, ambientGround: 0x29242d, keyColor: 0xa9c8ff, keyIntensity: 0.52, hemisphereIntensity: 0.72, candleIntensity: 0.96, wallColor: 0x251f22 },
-  { hour: 5.5, skyTop: 0x28394e, skyBottom: 0xc8785d, ambientSky: 0xd7bdad, ambientGround: 0x49372f, keyColor: 0xffb77b, keyIntensity: 1.02, hemisphereIntensity: 1.0, candleIntensity: 0.72, wallColor: 0x48362f },
-  { hour: 8, skyTop: 0x75afd5, skyBottom: 0xdedac7, ambientSky: 0xffefd2, ambientGround: 0x6c5742, keyColor: 0xffd8a5, keyIntensity: 1.72, hemisphereIntensity: 1.42, candleIntensity: 0.34, wallColor: 0x66503f },
-  { hour: 16, skyTop: 0x78acd0, skyBottom: 0xe4d5bd, ambientSky: 0xffebce, ambientGround: 0x68523f, keyColor: 0xffd29b, keyIntensity: 1.62, hemisphereIntensity: 1.36, candleIntensity: 0.38, wallColor: 0x64503f },
-  { hour: 18.5, skyTop: 0x40506b, skyBottom: 0xdb815e, ambientSky: 0xd0b5ac, ambientGround: 0x49362f, keyColor: 0xffaa71, keyIntensity: 1.0, hemisphereIntensity: 0.94, candleIntensity: 0.76, wallColor: 0x49362f },
-  { hour: 20.5, skyTop: 0x0b1426, skyBottom: 0x26304a, ambientSky: 0x91abd1, ambientGround: 0x2d2730, keyColor: 0xb2ccff, keyIntensity: 0.58, hemisphereIntensity: 0.76, candleIntensity: 0.94, wallColor: 0x292228 },
-  { hour: 24, skyTop: 0x07101f, skyBottom: 0x18233d, ambientSky: 0x8ba6cf, ambientGround: 0x29242d, keyColor: 0xa9c8ff, keyIntensity: 0.52, hemisphereIntensity: 0.72, candleIntensity: 0.96, wallColor: 0x251f22 }
+  { hour: 0, skyTop: 0x06101f, skyBottom: 0x141d34, ambientSky: 0x7f9bc7, ambientGround: 0x25212a, keyColor: 0x9dbfff, keyIntensity: 0.44, hemisphereIntensity: 0.66, candleIntensity: 1.0, wallColor: 0x231e22 },
+  { hour: 3.5, skyTop: 0x101c30, skyBottom: 0x2d3245, ambientSky: 0x8da1bd, ambientGround: 0x302830, keyColor: 0xa8c3ed, keyIntensity: 0.48, hemisphereIntensity: 0.72, candleIntensity: 1.0, wallColor: 0x2b2427 },
+  { hour: 5.2, skyTop: 0x314761, skyBottom: 0xba705b, ambientSky: 0xc7b6b0, ambientGround: 0x46372f, keyColor: 0xffaa75, keyIntensity: 0.82, hemisphereIntensity: 0.9, candleIntensity: 0.82, wallColor: 0x43342f },
+  { hour: 6.4, skyTop: 0x6a9fc4, skyBottom: 0xe0bc91, ambientSky: 0xf1d9bc, ambientGround: 0x5c4939, keyColor: 0xffc98e, keyIntensity: 1.36, hemisphereIntensity: 1.18, candleIntensity: 0.45, wallColor: 0x594437 },
+  { hour: 8.5, skyTop: 0x78b2d9, skyBottom: 0xe7dfc9, ambientSky: 0xffefd3, ambientGround: 0x6a5745, keyColor: 0xffd8a8, keyIntensity: 1.72, hemisphereIntensity: 1.42, candleIntensity: 0.2, wallColor: 0x665141 },
+  { hour: 15.8, skyTop: 0x77add3, skyBottom: 0xe6d7be, ambientSky: 0xffebce, ambientGround: 0x68523f, keyColor: 0xffd29b, keyIntensity: 1.62, hemisphereIntensity: 1.36, candleIntensity: 0.22, wallColor: 0x64503f },
+  { hour: 17.6, skyTop: 0x7087a4, skyBottom: 0xe6a06e, ambientSky: 0xe4c8b2, ambientGround: 0x594235, keyColor: 0xffb375, keyIntensity: 1.22, hemisphereIntensity: 1.08, candleIntensity: 0.46, wallColor: 0x594238 },
+  { hour: 18.7, skyTop: 0x39465f, skyBottom: 0xbd6a58, ambientSky: 0xbcaeb1, ambientGround: 0x41332f, keyColor: 0xf6976b, keyIntensity: 0.82, hemisphereIntensity: 0.86, candleIntensity: 0.78, wallColor: 0x40322f },
+  { hour: 20.2, skyTop: 0x0b1528, skyBottom: 0x27304a, ambientSky: 0x8fa8d0, ambientGround: 0x2b2630, keyColor: 0xaac8ff, keyIntensity: 0.5, hemisphereIntensity: 0.72, candleIntensity: 0.98, wallColor: 0x282228 },
+  { hour: 24, skyTop: 0x06101f, skyBottom: 0x141d34, ambientSky: 0x7f9bc7, ambientGround: 0x25212a, keyColor: 0x9dbfff, keyIntensity: 0.44, hemisphereIntensity: 0.66, candleIntensity: 1.0, wallColor: 0x231e22 }
 ];
 
 export class ReadingWorldController {
@@ -33,6 +45,7 @@ export class ReadingWorldController {
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
   private readonly textures: THREE.Texture[] = [];
+  private readonly weather = new WeatherController();
   private readonly deskMaterial: THREE.MeshStandardMaterial;
   private readonly wallMaterial: THREE.MeshStandardMaterial;
   private readonly mirrorMaterial: THREE.MeshBasicMaterial;
@@ -42,11 +55,18 @@ export class ReadingWorldController {
   private readonly candleLight = new THREE.PointLight(0xffa85c, 0.7, 4.6, 2);
   private readonly flame: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly flameGlow: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  private readonly beamMaterials: THREE.MeshBasicMaterial[] = [];
   private baseCandleIntensity = 0.7;
+  private baseKeyIntensity = 1;
+  private baseHemisphereIntensity = 1;
   private ambientSeconds = 0;
   private lastClockMinute = -1;
   private lastReflectionTick = -1;
   private focusMode = false;
+  private currentWeather: WeatherSnapshot = this.weather.current();
+  private currentCelestial: CelestialState = celestialState(new Date());
+  private lightningPulse = 0;
+  private nextLightningAt = 0;
 
   public constructor(
     private readonly hemisphere: THREE.HemisphereLight,
@@ -101,6 +121,7 @@ export class ReadingWorldController {
       side: THREE.DoubleSide
     }));
     this.root.add(this.createMirror());
+    this.root.add(this.createWindowBeams());
 
     const candle = this.createCandle();
     this.flame = candle.flame;
@@ -135,7 +156,13 @@ export class ReadingWorldController {
     this.flame.position.y = Math.sin(this.ambientSeconds * 4.1 + 1.2) * 0.006;
     this.flameGlow.scale.setScalar(1 + Math.sin(this.ambientSeconds * 4.8) * 0.025);
 
-    const reflectionTick = Math.floor(Date.now() / 3000);
+    this.updateLightning(safeDelta);
+    this.updateWindowBeams();
+
+    this.keyLight.intensity = this.baseKeyIntensity + this.lightningPulse * 2.7;
+    this.hemisphere.intensity = this.baseHemisphereIntensity + this.lightningPulse * 0.62;
+
+    const reflectionTick = Math.floor(Date.now() / 1000);
     if (reflectionTick !== this.lastReflectionTick) {
       this.lastReflectionTick = reflectionTick;
       this.refreshClock(true);
@@ -149,8 +176,10 @@ export class ReadingWorldController {
     this.lastClockMinute = minuteKey;
 
     const palette = samplePalette(now);
-    this.applyLighting(palette);
-    this.drawMirrorReflection(now, palette);
+    this.currentWeather = this.weather.current(now);
+    this.currentCelestial = celestialState(now);
+    this.applyLighting(palette, now, this.currentWeather, this.currentCelestial);
+    this.drawMirrorReflection(now, palette, this.currentWeather, this.currentCelestial);
   }
 
   public dispose(): void {
@@ -236,6 +265,31 @@ export class ReadingWorldController {
     return mirror;
   }
 
+  private createWindowBeams(): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(0, -0.1, 0.25);
+
+    for (let index = 0; index < 2; index += 1) {
+      const material = this.trackMaterial(new THREE.MeshBasicMaterial({
+        color: index === 0 ? 0xffdf9d : 0xffe9be,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        side: THREE.DoubleSide
+      }));
+      this.beamMaterials.push(material);
+      const beam = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(0.52, 4.7)), material);
+      beam.rotation.x = Math.PI / 2 - 0.045;
+      beam.rotation.z = index === 0 ? -0.04 : 0.04;
+      beam.position.set(index === 0 ? -0.62 : 0.56, 0, 0.95);
+      group.add(beam);
+    }
+
+    return group;
+  }
+
   private createCandle(): {
     readonly root: THREE.Group;
     readonly flame: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
@@ -313,21 +367,84 @@ export class ReadingWorldController {
     return { root, flame, glow };
   }
 
-  private applyLighting(palette: WorldPalette): void {
+  private applyLighting(
+    palette: WorldPalette,
+    date: Date,
+    weather: WeatherSnapshot,
+    celestial: CelestialState
+  ): void {
     this.hemisphere.color.setHex(palette.ambientSky);
     this.hemisphere.groundColor.setHex(palette.ambientGround);
-    this.hemisphere.intensity = palette.hemisphereIntensity * (this.focusMode ? 0.76 : 1);
+
+    const cloudDim = 1 - weather.cloudCover * 0.18 - weather.rainIntensity * 0.12;
+    this.baseHemisphereIntensity = palette.hemisphereIntensity * cloudDim * (this.focusMode ? 0.76 : 1);
+    this.hemisphere.intensity = this.baseHemisphereIntensity;
 
     this.keyLight.color.setHex(palette.keyColor);
-    this.keyLight.intensity = palette.keyIntensity * (this.focusMode ? 1.08 : 1);
-    this.keyLight.position.set(4.2, -2.0, 6.4);
+    this.baseKeyIntensity = palette.keyIntensity * (1 - weather.cloudCover * 0.32) * (this.focusMode ? 1.08 : 1);
+    this.keyLight.intensity = this.baseKeyIntensity;
+
+    const activeT = celestial.sunStrength > 0.02 ? celestial.sunT : celestial.moonT;
+    const arcHeight = Math.sin(Math.PI * activeT);
+    this.keyLight.position.set(
+      THREE.MathUtils.lerp(-5.1, 5.1, activeT),
+      THREE.MathUtils.lerp(-2.7, -0.6, arcHeight),
+      3.5 + arcHeight * 4.2
+    );
 
     this.baseCandleIntensity = palette.candleIntensity;
     this.candleLight.intensity = this.baseCandleIntensity * (this.focusMode ? 0.48 : 1);
     this.wallMaterial.color.setHex(palette.wallColor);
+
+    // Keep the weather model warm while the tab is active without ever requesting
+    // location permission implicitly.
+    if (date.getMinutes() % 15 === 0) this.weather.refreshIfGranted();
   }
 
-  private drawMirrorReflection(date: Date, palette: WorldPalette): void {
+  private updateWindowBeams(): void {
+    const celestial = this.currentCelestial;
+    const weather = this.currentWeather;
+    const sun = celestial.sunStrength;
+    const moon = celestial.moonStrength * 0.22;
+    const source = sun > moon ? sun : moon;
+    const passingCloud = 0.78 + Math.sin(this.ambientSeconds * 0.115 + 0.7) * 0.12 + Math.sin(this.ambientSeconds * 0.043) * 0.1;
+    const visibility = THREE.MathUtils.clamp(
+      source * (1 - weather.cloudCover * THREE.MathUtils.clamp(passingCloud, 0.55, 1)) * (1 - weather.rainIntensity * 0.45),
+      0,
+      1
+    );
+
+    for (let index = 0; index < this.beamMaterials.length; index += 1) {
+      const material = this.beamMaterials[index];
+      material.color.setHex(sun >= moon ? 0xffdf9d : 0xbfd5ff);
+      material.opacity = visibility * (sun >= moon ? 0.075 : 0.028) * (index === 0 ? 1 : 0.82);
+    }
+  }
+
+  private updateLightning(deltaMs: number): void {
+    const now = Date.now();
+    if (this.currentWeather.thunderChance > 0.05) {
+      if (this.nextLightningAt === 0) {
+        this.nextLightningAt = now + 7000 + pseudoRandom(now * 0.0001) * 19000;
+      } else if (now >= this.nextLightningAt) {
+        this.lightningPulse = 1;
+        const spread = 12000 + pseudoRandom(now * 0.00017 + 9.1) * 33000;
+        this.nextLightningAt = now + spread / Math.max(0.28, this.currentWeather.thunderChance);
+      }
+    } else {
+      this.nextLightningAt = 0;
+    }
+
+    this.lightningPulse *= Math.exp(-deltaMs / 115);
+    if (this.lightningPulse < 0.002) this.lightningPulse = 0;
+  }
+
+  private drawMirrorReflection(
+    date: Date,
+    palette: WorldPalette,
+    weather: WeatherSnapshot,
+    celestial: CelestialState
+  ): void {
     const context = this.reflectionContext;
     const width = this.reflectionCanvas.width;
     const height = this.reflectionCanvas.height;
@@ -350,58 +467,39 @@ export class ReadingWorldController {
     context.fillStyle = 'rgba(35,27,22,.92)';
     context.fillRect(wx - frame, wy - frame, ww + frame * 2, wh + frame * 2);
 
-    const gx = wx;
-    const gy = wy;
-    const gw = ww;
-    const gh = wh;
-    const skyGradient = context.createLinearGradient(0, gy, 0, gy + gh);
+    const skyGradient = context.createLinearGradient(0, wy, 0, wy + wh);
     skyGradient.addColorStop(0, colorCss(palette.skyTop));
     skyGradient.addColorStop(1, colorCss(palette.skyBottom));
     context.fillStyle = skyGradient;
-    context.fillRect(gx, gy, gw, gh);
+    context.fillRect(wx, wy, ww, wh);
 
     context.save();
     context.beginPath();
-    context.rect(gx, gy, gw, gh);
+    context.rect(wx, wy, ww, wh);
     context.clip();
 
-    const hour = date.getHours() + date.getMinutes() / 60;
-    const daylight = hour >= 6.2 && hour <= 18.5;
-    context.globalAlpha = daylight ? 0.38 : 0.28;
-    context.fillStyle = daylight ? '#ffe0a2' : '#d9e7ff';
-    context.beginPath();
-    context.arc(
-      daylight ? gx + gw * 0.72 : gx + gw * 0.26,
-      daylight ? gy + gh * 0.28 : gy + gh * 0.25,
-      daylight ? 22 : 14,
-      0,
-      Math.PI * 2
-    );
-    context.fill();
+    this.drawStars(context, date, wx, wy, ww, wh, celestial.starsStrength * (1 - weather.cloudCover * 0.7));
+    this.drawCelestialBody(context, wx, wy, ww, wh, celestial);
+    this.drawAtmosphericRays(context, wx, wy, ww, wh, celestial, weather);
+    this.drawProceduralClouds(context, date, wx, wy, ww, wh, celestial.sunStrength > 0.04, weather.cloudCover);
+    if (weather.rainIntensity > 0.03) {
+      this.drawRain(context, date, wx, wy, ww, wh, weather.rainIntensity);
+    }
 
-    const blockSeed = Math.floor(date.getTime() / 900_000);
-    const cloudChance = pseudoRandom(blockSeed * 17 + 3);
-    if (cloudChance > 0.57) {
-      const cloudCount = cloudChance > 0.86 ? 2 : 1;
-      const drift = (date.getTime() / 1000 % 120) / 120;
-      for (let index = 0; index < cloudCount; index += 1) {
-        const seed = blockSeed * 37 + index * 101;
-        const start = -0.12 + pseudoRandom(seed + 1) * 0.38;
-        const x = gx + gw * (start + drift * 0.82 + index * 0.17);
-        const y = gy + gh * (0.25 + pseudoRandom(seed + 2) * 0.26);
-        const scale = 0.7 + pseudoRandom(seed + 3) * 0.48;
-        this.drawCloud(context, x, y, scale, daylight ? 0.095 : 0.052);
-      }
+    if (this.lightningPulse > 0) {
+      context.globalAlpha = this.lightningPulse * 0.46;
+      context.fillStyle = '#e9f2ff';
+      context.fillRect(wx, wy, ww, wh);
     }
 
     context.restore();
 
-    context.globalAlpha = 0.28;
+    context.globalAlpha = 0.32;
     context.fillStyle = '#17130f';
-    context.fillRect(gx + gw * 0.49, gy, gw * 0.022, gh);
-    context.fillRect(gx, gy + gh * 0.50, gw, gh * 0.026);
+    context.fillRect(wx + ww * 0.49, wy, ww * 0.022, wh);
+    context.fillRect(wx, wy + wh * 0.50, ww, wh * 0.026);
 
-    context.globalAlpha = 0.10;
+    context.globalAlpha = 0.1;
     const sheen = context.createLinearGradient(0, 0, width, height);
     sheen.addColorStop(0.1, 'rgba(255,255,255,0)');
     sheen.addColorStop(0.43, 'rgba(255,255,255,.30)');
@@ -420,16 +518,180 @@ export class ReadingWorldController {
     this.reflectionTexture.needsUpdate = true;
   }
 
-  private drawCloud(context: CanvasRenderingContext2D, x: number, y: number, scale: number, alpha: number): void {
+  private drawStars(
+    context: CanvasRenderingContext2D,
+    date: Date,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    strength: number
+  ): void {
+    if (strength <= 0.01) return;
+    const time = date.getTime() / 1000;
     context.save();
-    context.globalAlpha = alpha;
-    context.fillStyle = '#ffffff';
+    for (let index = 0; index < 44; index += 1) {
+      const sx = x + pseudoRandom(index * 3.17 + 1.2) * width;
+      const sy = y + pseudoRandom(index * 7.31 + 4.8) * height * 0.72;
+      const twinkle = 0.55 + Math.sin(time * (0.35 + pseudoRandom(index + 8) * 0.75) + index) * 0.22;
+      context.globalAlpha = strength * Math.max(0.14, twinkle) * (0.45 + pseudoRandom(index * 5.1) * 0.55);
+      context.fillStyle = index % 7 === 0 ? '#dce8ff' : '#fff8e8';
+      context.beginPath();
+      context.arc(sx, sy, 0.55 + pseudoRandom(index * 9.3) * 1.05, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  }
+
+  private drawCelestialBody(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    celestial: CelestialState
+  ): void {
+    const isSun = celestial.sunStrength >= celestial.moonStrength;
+    const strength = isSun ? celestial.sunStrength : celestial.moonStrength;
+    if (strength <= 0.01) return;
+    const t = isSun ? celestial.sunT : celestial.moonT;
+    const cx = x + width * THREE.MathUtils.lerp(0.12, 0.88, t);
+    const cy = y + height * (0.74 - Math.sin(Math.PI * t) * 0.55);
+    const radius = isSun ? 18 : 12;
+
+    const glow = context.createRadialGradient(cx, cy, radius * 0.2, cx, cy, radius * 2.7);
+    glow.addColorStop(0, isSun ? 'rgba(255,240,177,.70)' : 'rgba(210,226,255,.42)');
+    glow.addColorStop(1, 'rgba(255,255,255,0)');
+    context.globalAlpha = strength;
+    context.fillStyle = glow;
+    context.fillRect(cx - radius * 3, cy - radius * 3, radius * 6, radius * 6);
+
+    context.fillStyle = isSun ? '#ffe7a0' : '#dce8ff';
+    context.globalAlpha = strength * (isSun ? 0.76 : 0.68);
     context.beginPath();
-    context.ellipse(x, y, 48 * scale, 15 * scale, -0.05, 0, Math.PI * 2);
-    context.ellipse(x - 29 * scale, y + 3 * scale, 27 * scale, 11 * scale, -0.04, 0, Math.PI * 2);
-    context.ellipse(x + 27 * scale, y + 2 * scale, 33 * scale, 12 * scale, 0.03, 0, Math.PI * 2);
-    context.ellipse(x - 8 * scale, y - 10 * scale, 24 * scale, 19 * scale, 0.02, 0, Math.PI * 2);
+    context.arc(cx, cy, radius, 0, Math.PI * 2);
     context.fill();
+  }
+
+  private drawAtmosphericRays(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    celestial: CelestialState,
+    weather: WeatherSnapshot
+  ): void {
+    const isSun = celestial.sunStrength >= celestial.moonStrength;
+    const sourceStrength = isSun ? celestial.sunStrength : celestial.moonStrength * 0.32;
+    if (sourceStrength < 0.04) return;
+
+    const cloudPass = 0.78 + Math.sin(this.ambientSeconds * 0.12) * 0.12;
+    const visible = sourceStrength * (1 - weather.cloudCover * cloudPass) * (1 - weather.rainIntensity * 0.55);
+    if (visible <= 0.02) return;
+
+    const t = isSun ? celestial.sunT : celestial.moonT;
+    const originX = x + width * THREE.MathUtils.lerp(0.12, 0.88, t);
+    const originY = y + height * (0.74 - Math.sin(Math.PI * t) * 0.55);
+    const gradient = context.createLinearGradient(originX, originY, x + width * 0.5, y + height);
+    gradient.addColorStop(0, isSun ? `rgba(255,229,164,${(0.18 * visible).toFixed(3)})` : `rgba(196,216,255,${(0.08 * visible).toFixed(3)})`);
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.globalAlpha = 1;
+
+    context.beginPath();
+    context.moveTo(originX - 7, originY + 4);
+    context.lineTo(x + width * 0.22, y + height);
+    context.lineTo(x + width * 0.46, y + height);
+    context.lineTo(originX + 8, originY + 5);
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.moveTo(originX + 5, originY + 5);
+    context.lineTo(x + width * 0.58, y + height);
+    context.lineTo(x + width * 0.81, y + height);
+    context.lineTo(originX + 15, originY + 7);
+    context.closePath();
+    context.fill();
+  }
+
+  private drawProceduralClouds(
+    context: CanvasRenderingContext2D,
+    date: Date,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    daylight: boolean,
+    cloudCover: number
+  ): void {
+    if (cloudCover < 0.045) return;
+    const count = 1 + Math.round(cloudCover * 4);
+    const seconds = date.getTime() / 1000;
+    const daySeed = date.getFullYear() * 1000 + date.getMonth() * 50 + date.getDate();
+
+    for (let index = 0; index < count; index += 1) {
+      const seed = daySeed * 0.31 + index * 41.7;
+      const speed = 0.0025 + pseudoRandom(seed + 3) * 0.0022;
+      const drift = (seconds * speed + pseudoRandom(seed + 1)) % 1.35;
+      const cx = x + width * (drift - 0.18);
+      const cy = y + height * (0.18 + pseudoRandom(seed + 2) * 0.42);
+      const scale = 0.58 + pseudoRandom(seed + 4) * 0.72;
+      const density = THREE.MathUtils.clamp(0.34 + cloudCover * 0.58 + pseudoRandom(seed + 5) * 0.12, 0, 1);
+      this.drawSoftCloud(context, cx, cy, scale, density, daylight);
+    }
+  }
+
+  private drawSoftCloud(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    scale: number,
+    density: number,
+    daylight: boolean
+  ): void {
+    const cloudColor = daylight ? '238,241,239' : '54,63,80';
+    context.save();
+    for (let layer = 0; layer < 7; layer += 1) {
+      const ox = (pseudoRandom(layer * 11.7 + x * 0.001) - 0.5) * 62 * scale;
+      const oy = (pseudoRandom(layer * 19.3 + y * 0.001) - 0.5) * 22 * scale;
+      const radius = (28 + pseudoRandom(layer * 29.1) * 30) * scale;
+      const gradient = context.createRadialGradient(x + ox, y + oy, radius * 0.08, x + ox, y + oy, radius);
+      const alpha = (0.075 + density * 0.075) * (0.7 + pseudoRandom(layer * 7.9) * 0.3);
+      gradient.addColorStop(0, `rgba(${cloudColor},${alpha.toFixed(3)})`);
+      gradient.addColorStop(0.62, `rgba(${cloudColor},${(alpha * 0.58).toFixed(3)})`);
+      gradient.addColorStop(1, `rgba(${cloudColor},0)`);
+      context.fillStyle = gradient;
+      context.fillRect(x + ox - radius, y + oy - radius, radius * 2, radius * 2);
+    }
+    context.restore();
+  }
+
+  private drawRain(
+    context: CanvasRenderingContext2D,
+    date: Date,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    intensity: number
+  ): void {
+    const count = Math.round(28 + intensity * 72);
+    const tick = date.getTime() / 34;
+    context.save();
+    context.strokeStyle = `rgba(192,214,235,${(0.08 + intensity * 0.18).toFixed(3)})`;
+    context.lineWidth = 0.7 + intensity * 0.6;
+    for (let index = 0; index < count; index += 1) {
+      const seed = index * 17.3;
+      const rx = x + ((pseudoRandom(seed + 1) * width + tick * (0.08 + pseudoRandom(seed + 2) * 0.09)) % width);
+      const ry = y + ((pseudoRandom(seed + 3) * height + tick * (0.9 + intensity * 1.6)) % height);
+      const length = 5 + pseudoRandom(seed + 4) * 10 + intensity * 8;
+      context.beginPath();
+      context.moveTo(rx, ry);
+      context.lineTo(rx - 2.1 - intensity * 1.7, ry + length);
+      context.stroke();
+    }
     context.restore();
   }
 
@@ -477,6 +739,31 @@ function samplePalette(date: Date): WorldPalette {
     candleIntensity: THREE.MathUtils.lerp(left.candleIntensity, right.candleIntensity, t),
     wallColor: lerpHex(left.wallColor, right.wallColor, t)
   };
+}
+
+function celestialState(date: Date): CelestialState {
+  const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+  const sunT = THREE.MathUtils.clamp((hour - 5.35) / (18.65 - 5.35), 0, 1);
+  const sunWindow = hour >= 5.35 && hour <= 18.65 ? 1 : 0;
+  const sunStrength = sunWindow * THREE.MathUtils.smoothstep(Math.sin(Math.PI * sunT), 0, 0.3);
+
+  const nightHour = hour < 6.2 ? hour + 24 : hour;
+  const moonT = THREE.MathUtils.clamp((nightHour - 18.2) / (30.2 - 18.2), 0, 1);
+  const moonWindow = nightHour >= 18.2 && nightHour <= 30.2 ? 1 : 0;
+  const moonStrength = moonWindow * THREE.MathUtils.smoothstep(Math.sin(Math.PI * moonT), 0, 0.22);
+
+  const twilight = THREE.MathUtils.clamp(Math.max(
+    smoothRange(hour, 3.5, 5.7),
+    smoothRange(20.0, 18.2, hour)
+  ), 0, 1);
+  const starsStrength = THREE.MathUtils.clamp(Math.max(moonWindow, twilight) * (1 - sunStrength * 1.4), 0, 1);
+
+  return { sunStrength, moonStrength, sunT, moonT, starsStrength };
+}
+
+function smoothRange(value: number, start: number, end: number): number {
+  if (start === end) return 0;
+  return THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
 }
 
 function lerpHex(from: number, to: number, t: number): number {
