@@ -1,11 +1,13 @@
 import { AudioEngine } from '../audio/AudioEngine';
 import { createSampleBookDocument } from '../document/SampleBook';
+import type { LogicalAnchor } from '../document/BookDocument';
 import { importTxt } from '../import/TxtImporter';
 import { InputController } from '../input/InputController';
 import { SelectionGuard } from '../input/SelectionGuard';
 import type { PageTheme, TypographySettings } from '../pagination/types';
 import { FrameMetrics } from '../performance/FrameMetrics';
 import { PerformanceGovernor } from '../performance/PerformanceGovernor';
+import { createPdfCoverArtworkFromBytes } from '../pdf/PdfCoverArt';
 import { createPdfBookId } from '../pdf/PdfDocumentLoader';
 import type { PdfViewMode } from '../pdf/PdfTypes';
 import { ReadingSession, type ReadingProgressSnapshot } from '../reader/ReadingSession';
@@ -26,6 +28,8 @@ interface ScreenWakeLockSentinel {
 interface ScreenWakeLockManager {
   request(type: 'screen'): Promise<ScreenWakeLockSentinel>;
 }
+
+const PHYSICAL_BOOKMARK_CHAPTER = 'physical-page';
 
 export class App {
   private readonly shell: HTMLDivElement;
@@ -66,11 +70,11 @@ export class App {
 
     const label = document.createElement('div');
     label.className = 'foundation-label';
-    label.textContent = 'V2.1.3 • PDF Original + Reader';
+    label.textContent = 'V2.1.7 • Physical Cover + Bookmark';
 
     const hint = document.createElement('div');
     hint.className = 'interaction-hint';
-    hint.textContent = 'Seu livro, progresso e bookmarks ficam neste dispositivo';
+    hint.textContent = 'Seu livro, progresso e marcação ficam neste dispositivo';
 
     this.shell.append(this.canvas, label, hint);
     this.root.append(this.shell);
@@ -119,6 +123,7 @@ export class App {
       onPageTheme: this.handlePageTheme,
       onPdfMode: this.handlePdfMode,
       onToggleBookmark: this.handleToggleBookmark,
+      onCloseBook: this.handleCloseBook,
       onFocusMode: this.handleFocusMode,
       onAudioEnabled: this.handleAudioEnabled
     });
@@ -135,6 +140,9 @@ export class App {
     this.renderer.setTurnMotionListener((motion) => this.audio.updatePageDrag(motion));
     this.renderer.setTurnCompleteListener((direction) => this.audio.playPageSettle(direction));
     this.renderer.setReducedMotion(this.reducedMotionQuery.matches);
+    this.renderer.setClosedBookOpenListener(this.handleClosedBookOpen);
+    this.renderer.setFinishedBookListener(this.handleFinishedBook);
+    this.renderer.setBookmarkActivateListener(this.handleBookmarkActivate);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.shell);
@@ -168,6 +176,9 @@ export class App {
     this.session.dispose();
     this.renderer.setTurnMotionListener(null);
     this.renderer.setTurnCompleteListener(null);
+    this.renderer.setClosedBookOpenListener(null);
+    this.renderer.setFinishedBookListener(null);
+    this.renderer.setBookmarkActivateListener(null);
     this.renderer.dispose();
     this.audio.dispose();
     this.debugHud.destroy();
@@ -192,20 +203,28 @@ export class App {
         this.persistedBookId = recent.book.id;
         const progress = await this.storage.getProgress(recent.book.id);
         const sourceText = await recent.source.text();
+        this.renderer.setCoverArtwork(null);
         await this.session.openTxtSource(recent.book.sourceName, sourceText, {
           anchor: progress?.anchor,
           typography: progress?.typography
         });
+        this.controls.setBookClosed(false);
         this.controls.showMessage(`${recent.book.title} • restaurado do dispositivo`);
       } else if (recent?.book.sourceType === 'pdf') {
         this.persistedBookId = recent.book.id;
         const progress = await this.storage.getProgress(recent.book.id);
-        const bytes = new Uint8Array(await recent.source.arrayBuffer());
-        const publication = await this.session.openPdfSource(recent.book.sourceName, bytes, {
+        const raw = new Uint8Array(await recent.source.arrayBuffer());
+        const coverBytes = Uint8Array.from(raw);
+        const coverPromise = createPdfCoverArtworkFromBytes(recent.book.sourceName, coverBytes, recent.book.id)
+          .catch(() => null);
+        const publication = await this.session.openPdfSource(recent.book.sourceName, raw, {
           anchor: progress?.anchor,
           typography: progress?.typography,
           pdfMode: progress?.pdfMode ?? 'reader'
         }, recent.book.id);
+        const artwork = await coverPromise;
+        this.renderer.setCoverArtwork(artwork);
+        this.controls.setBookClosed(false);
         this.controls.showMessage(`${recent.book.title} • ${publication.mode === 'reader' ? 'Reader Mode' : 'PDF Original'} restaurado`);
       } else {
         if (recent) {
@@ -213,6 +232,7 @@ export class App {
         }
         await this.loadSampleBook();
       }
+      await this.refreshBookmark();
     } catch (error: unknown) {
       this.persistedBookId = null;
       await this.storage.clearRecentBook().catch(() => undefined);
@@ -225,7 +245,10 @@ export class App {
 
   private async loadSampleBook(): Promise<void> {
     this.persistedBookId = null;
-    this.controls.setBookmarked(false);
+    this.renderer.setCoverArtwork(null);
+    this.renderer.setBookmark(null, this.session.typography.bookmarkColor);
+    this.controls.setBookmarkState(false, false);
+    this.controls.setBookClosed(false);
     await this.session.loadDocument(createSampleBookDocument());
   }
 
@@ -237,7 +260,8 @@ export class App {
       const documentModel = importTxt(file.name, sourceText);
       const previousProgress = await this.storage.getProgress(documentModel.id);
 
-      await this.session.loadDocument(documentModel, previousProgress?.anchor ?? null, previousProgress?.typography ?? null);
+      this.renderer.setCoverArtwork(null);
+      await this.session.loadDocument(documentModel, null, previousProgress?.typography ?? null);
       await this.storage.saveBookSource({
         id: documentModel.id,
         title: documentModel.metadata.title,
@@ -248,13 +272,17 @@ export class App {
       this.persistedBookId = documentModel.id;
     } else if (sourceType === 'pdf') {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const coverBytes = Uint8Array.from(bytes);
       const bookId = await createPdfBookId(bytes);
       const previousProgress = await this.storage.getProgress(bookId);
+      const coverPromise = createPdfCoverArtworkFromBytes(file.name, coverBytes, bookId).catch(() => null);
       const publication = await this.session.openPdfSource(file.name, bytes, {
-        anchor: previousProgress?.anchor,
+        anchor: null,
         typography: previousProgress?.typography,
         pdfMode: previousProgress?.pdfMode ?? 'reader'
       }, bookId);
+      const artwork = await coverPromise;
+      this.renderer.setCoverArtwork(artwork);
 
       await this.storage.saveBookSource({
         id: publication.id,
@@ -270,21 +298,23 @@ export class App {
           : `${publication.title} • PDF Original • ${publication.pageCount} páginas`
       );
     } else if (sourceType === 'epub') {
-      throw new Error('EPUB foi reconhecido, mas entra depois do PDF na V2.x.');
+      throw new Error('EPUB foi reconhecido, mas a leitura EPUB ainda não está implementada.');
     } else {
       throw new Error('Formato ainda não suportado. Use TXT ou PDF.');
     }
 
+    this.renderer.setCurrentPage(0);
     await this.persistCurrentProgress();
     await this.refreshBookmark();
-    this.metrics.reset();
-    this.scheduler.resetTiming();
-    this.scheduler.invalidate();
+    this.renderer.closeBook('import', true);
+    this.controls.setBookClosed(true);
+    this.beginVisualAnimation();
   };
 
   private readonly handleTypography = async (patch: Partial<TypographySettings>): Promise<void> => {
     await this.session.updateTypography(patch);
     await this.persistCurrentProgress();
+    await this.refreshBookmark();
     this.metrics.reset();
     this.scheduler.resetTiming();
     this.scheduler.invalidate();
@@ -305,11 +335,58 @@ export class App {
   };
 
   private readonly handleToggleBookmark = async (): Promise<boolean> => {
-    const snapshot = this.session.snapshotProgress();
-    if (!snapshot || snapshot.bookId !== this.persistedBookId) {
-      throw new Error('Importe um TXT ou PDF para salvar bookmarks deste livro.');
+    const bookId = this.session.currentBookId;
+    if (!bookId || bookId !== this.persistedBookId) {
+      throw new Error('Importe um TXT ou PDF para marcar uma folha deste livro.');
     }
-    return this.storage.toggleBookmark(snapshot.bookId, snapshot.anchor);
+
+    const pageIndex = this.renderer.currentPageIndex;
+    const anchor: LogicalAnchor = {
+      chapterId: PHYSICAL_BOOKMARK_CHAPTER,
+      blockId: 'page',
+      offset: pageIndex
+    };
+    const bookmarked = await this.storage.toggleBookmark(bookId, anchor);
+    await this.refreshBookmark();
+    return bookmarked;
+  };
+
+  private readonly handleCloseBook = async (): Promise<void> => {
+    if (this.renderer.isBookClosed) return;
+    await this.persistCurrentProgress();
+    this.renderer.closeBook('manual');
+    this.controls.setBookClosed(true);
+    this.beginVisualAnimation();
+  };
+
+  private readonly handleClosedBookOpen = (reason: 'manual' | 'finished' | 'import'): void => {
+    void this.openClosedBook(reason);
+  };
+
+  private async openClosedBook(reason: 'manual' | 'finished' | 'import'): Promise<void> {
+    let targetPage = 0;
+    if (reason === 'manual' && this.persistedBookId) {
+      const bookmark = await this.storage.getBookmark(this.persistedBookId);
+      targetPage = this.physicalPageFromBookmark(bookmark?.anchor ?? null) ?? 0;
+    }
+
+    this.renderer.setCurrentPage(targetPage);
+    this.renderer.openBook();
+    this.controls.setBookClosed(false);
+    await this.refreshBookmark();
+    this.beginVisualAnimation();
+  }
+
+  private readonly handleFinishedBook = (): void => {
+    if (this.renderer.isBookClosed) return;
+    this.renderer.closeBook('finished');
+    this.controls.setBookClosed(true);
+    this.beginVisualAnimation();
+  };
+
+  private readonly handleBookmarkActivate = (pageIndex: number): void => {
+    if (this.renderer.isBookClosed) return;
+    if (this.renderer.jumpToPage(pageIndex)) this.beginVisualAnimation();
   };
 
   private readonly handleFocusMode = async (enabled: boolean): Promise<void> => {
@@ -392,14 +469,39 @@ export class App {
 
   private async refreshBookmark(): Promise<void> {
     const token = ++this.bookmarkRefreshToken;
-    const snapshot = this.session.snapshotProgress();
-    if (!snapshot || snapshot.bookId !== this.persistedBookId) {
-      if (token === this.bookmarkRefreshToken) this.controls.setBookmarked(false);
+    const bookId = this.session.currentBookId;
+    if (!bookId || bookId !== this.persistedBookId) {
+      if (token === this.bookmarkRefreshToken) {
+        this.renderer.setBookmark(null, this.session.typography.bookmarkColor);
+        this.controls.setBookmarkState(false, false);
+      }
       return;
     }
 
-    const bookmarked = await this.storage.isBookmarked(snapshot.bookId, snapshot.anchor);
-    if (token === this.bookmarkRefreshToken) this.controls.setBookmarked(bookmarked);
+    const bookmark = await this.storage.getBookmark(bookId);
+    if (token !== this.bookmarkRefreshToken) return;
+
+    const targetPage = this.physicalPageFromBookmark(bookmark?.anchor ?? null);
+    const exists = targetPage !== null;
+    const current = exists && Math.floor(targetPage / 2) * 2 === this.renderer.currentPageIndex;
+    this.renderer.setBookmark(targetPage, this.session.typography.bookmarkColor);
+    this.controls.setBookmarkState(exists, current);
+    this.scheduler.invalidate();
+  }
+
+  private physicalPageFromBookmark(anchor: LogicalAnchor | null): number | null {
+    if (!anchor || anchor.chapterId !== PHYSICAL_BOOKMARK_CHAPTER) return null;
+    if (!Number.isFinite(anchor.offset)) return null;
+    return Math.max(0, Math.floor(anchor.offset));
+  }
+
+  private beginVisualAnimation(): void {
+    if (document.hidden) return;
+    this.metrics.reset();
+    this.scheduler.resetTiming();
+    this.governor.beginCriticalInteraction();
+    this.scheduler.setMode('interactive');
+    this.scheduler.invalidate();
   }
 
   private readonly handlePointer = (pointer: PointerSnapshot): void => {
