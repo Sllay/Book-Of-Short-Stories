@@ -15,6 +15,7 @@ export class AmbientWeatherAudio {
   private rainIntensity = 0;
   private previousLightningPulse = 0;
   private lastThunderAt = 0;
+  private nextBirdChirpAt = 0;
   private readonly unsubscribeAudioPreference: () => void;
   private readonly handleVisibilityChange = (): void => {
     if (document.hidden) this.setHidden(true);
@@ -41,15 +42,21 @@ export class AmbientWeatherAudio {
     }
   }
 
-  public update(rainIntensity: number, lightningPulse: number): void {
+  public update(rainIntensity: number, lightningPulse: number, birdsActive = false): void {
     this.rainIntensity = clamp01(rainIntensity);
     if (this.context?.state === 'running') this.applyRainLevel();
+
+    const now = Date.now();
+    if (birdsActive && this.rainIntensity < 0.12 && this.enabled && now >= this.nextBirdChirpAt) {
+      this.playBirdChirp();
+      this.nextBirdChirpAt = now + 1800 + Math.random() * 3300;
+    } else if (!birdsActive) {
+      this.nextBirdChirpAt = 0;
+    }
 
     const lightningStarted = lightningPulse > 0.72 && this.previousLightningPulse <= 0.72;
     this.previousLightningPulse = lightningPulse;
     if (!lightningStarted || !this.enabled) return;
-
-    const now = Date.now();
     if (now - this.lastThunderAt < 5500) return;
     this.lastThunderAt = now;
     this.playThunder();
@@ -133,6 +140,33 @@ export class AmbientWeatherAudio {
     voice.lowpass.disconnect();
     voice.gain.disconnect();
     this.rainVoice = null;
+  }
+
+  private playBirdChirp(): void {
+    const context = this.context;
+    if (!context || context.state !== 'running') return;
+    const now = context.currentTime;
+    const pan = context.createStereoPanner();
+    pan.pan.value = (Math.random() - 0.5) * 0.7;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.007, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    gain.connect(pan);
+    pan.connect(context.destination);
+
+    for (let note = 0; note < 2; note += 1) {
+      const oscillator = context.createOscillator();
+      oscillator.type = 'sine';
+      const start = now + note * 0.075;
+      const base = 1750 + Math.random() * 520 + note * 180;
+      oscillator.frequency.setValueAtTime(base, start);
+      oscillator.frequency.exponentialRampToValueAtTime(base * (1.28 + Math.random() * 0.12), start + 0.075);
+      oscillator.frequency.exponentialRampToValueAtTime(base * 0.92, start + 0.15);
+      oscillator.connect(gain);
+      oscillator.start(start);
+      oscillator.stop(start + 0.17);
+    }
   }
 
   private playThunder(): void {
