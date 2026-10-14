@@ -113,20 +113,24 @@ export class RoomScene {
     this.root.add(contact);
 
     const signatureTexture = this.trackTexture(createDeskSignatureTexture());
-    const signatureMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+    const signatureMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       map: signatureTexture,
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.68,
+      opacity: 0.72,
+      roughness: 0.97,
+      metalness: 0,
       depthWrite: false,
-      toneMapped: false,
       side: THREE.DoubleSide
     }));
     const signature = new THREE.Mesh(
-      this.trackGeometry(new THREE.PlaneGeometry(0.78, 0.26)),
+      this.trackGeometry(new THREE.PlaneGeometry(0.72, 0.24)),
       signatureMaterial
     );
-    signature.position.set(0.16, -1.92, -0.287);
-    signature.rotation.z = -0.018;
+    // Keep the mark subtle, but place it inside the candle's warm falloff so the
+    // engraved highlight comes alive at night instead of reading as a black stamp.
+    signature.position.set(-2.66, 0.18, -0.287);
+    signature.rotation.z = -0.028;
     this.root.add(signature);
   }
 
