@@ -7,6 +7,7 @@ import type { PageTheme } from '../pagination/types';
 import { ReadingWorldController } from '../world/ReadingWorldController';
 
 const MAX_FRAMEBUFFER_PIXELS = 4_200_000;
+const DEFAULT_COVER_COLOR = 0x5a3526;
 
 export class ReaderRenderer {
   private readonly renderer: THREE.WebGLRenderer;
@@ -20,6 +21,8 @@ export class ReaderRenderer {
   private width = 1;
   private height = 1;
   private zoom = 0.55;
+  private coverArtwork: BookCoverArtwork | null = null;
+  private coverEdgeColor = DEFAULT_COVER_COLOR;
   private quality: QualityProfile;
 
   public constructor(canvas: HTMLCanvasElement, initialQuality: QualityProfile) {
@@ -41,6 +44,7 @@ export class ReaderRenderer {
 
   public get currentPageIndex(): number { return this.book.currentLeftPageIndex; }
   public get isBookClosed(): boolean { return this.presentation.isClosed; }
+  public get coverColor(): string { return `#${this.coverEdgeColor.toString(16).padStart(6, '0')}`; }
 
   public setPageChangeListener(listener: ((leftPageIndex: number) => void) | null): void {
     this.book.setPageChangeListener((pageIndex) => {
@@ -84,8 +88,22 @@ export class ReaderRenderer {
   }
 
   public setCoverArtwork(artwork: BookCoverArtwork | null): void {
+    this.coverArtwork = artwork;
+    this.coverEdgeColor = artwork?.edgeColor ?? DEFAULT_COVER_COLOR;
     this.presentation.setCoverArtwork(artwork);
-    this.book.setCoverEdgeColor(artwork?.edgeColor ?? 0x5a3526);
+    this.book.setCoverEdgeColor(this.coverEdgeColor);
+  }
+
+  public setCoverColor(color: string): void {
+    const parsed = new THREE.Color(color).getHex();
+    this.coverEdgeColor = parsed;
+    const recoloredArtwork: BookCoverArtwork = {
+      texture: this.coverArtwork?.texture ?? null,
+      edgeColor: parsed
+    };
+    this.coverArtwork = recoloredArtwork;
+    this.presentation.setCoverArtwork(recoloredArtwork);
+    this.book.setCoverEdgeColor(parsed);
   }
 
   public setBookmark(pageIndex: number | null, color: string): void {
