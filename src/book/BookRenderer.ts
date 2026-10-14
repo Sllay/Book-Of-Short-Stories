@@ -33,6 +33,7 @@ export class BookRenderer {
   private readonly staticGeometries: THREE.BufferGeometry[] = [];
   private readonly staticMaterials: THREE.Material[] = [];
   private readonly ownedTextures: THREE.Texture[] = [];
+  private readonly coverMaterial: THREE.MeshStandardMaterial;
   private readonly leftPageMaterial: THREE.MeshStandardMaterial;
   private readonly rightPageMaterial: THREE.MeshStandardMaterial;
   private readonly pageBlockMaterial: THREE.MeshStandardMaterial;
@@ -59,6 +60,7 @@ export class BookRenderer {
   private gestureSerial = 0;
   private settlingGestureSerial = 0;
   private committedGestureSerial = -1;
+  private pendingJumpTarget: number | null = null;
   private dragStartX = 0;
   private dragStartY = 0;
   private dragStartProgress = 0;
@@ -83,9 +85,13 @@ export class BookRenderer {
     this.fallbackTexture.colorSpace = THREE.SRGBColorSpace;
     this.fallbackTexture.needsUpdate = true;
 
-    const coverMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({ color: 0x5a3526, roughness: 0.86, metalness: 0 }));
+    this.coverMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x5a3526,
+      roughness: 0.86,
+      metalness: 0
+    }));
     const coverGeometry = this.trackGeometry(new THREE.BoxGeometry(5.02, 3.28, 0.12));
-    const cover = new THREE.Mesh(coverGeometry, coverMaterial);
+    const cover = new THREE.Mesh(coverGeometry, this.coverMaterial);
     cover.position.z = -0.18;
     this.root.add(cover);
 
@@ -126,6 +132,8 @@ export class BookRenderer {
   }
 
   public get currentLeftPageIndex(): number { return this.spreadLeftIndex; }
+  public get totalPageCount(): number { return this.pageCount; }
+  public get atEnd(): boolean { return this.pageCount > 0 && !this.canTurnForward(); }
 
   public setPageChangeListener(listener: ((leftPageIndex: number) => void) | null): void {
     this.pageChangeListener = listener;
@@ -158,6 +166,10 @@ export class BookRenderer {
     this.fallbackTexture.needsUpdate = true;
   }
 
+  public setCoverEdgeColor(color: number): void {
+    this.coverMaterial.color.setHex(color);
+  }
+
   public setPageLighting(
     ambientColor: THREE.Color,
     keyColor: THREE.Color,
@@ -171,12 +183,44 @@ export class BookRenderer {
   public setPageSource(source: BookPageSource, initialPageIndex = 0): void {
     const previousSource = this.pageSource;
     this.pageSource = source;
-    this.spreadLeftIndex = Math.max(0, Math.floor(initialPageIndex / 2) * 2);
+    this.spreadLeftIndex = this.clampLeftPage(initialPageIndex);
+    this.pendingJumpTarget = null;
     this.resetInteractionState();
     this.configureIdleVisual();
     this.pageSource.warmAround(this.spreadLeftIndex);
     if (previousSource && previousSource !== source) previousSource.dispose();
     this.pageChangeListener?.(this.spreadLeftIndex);
+  }
+
+  public setCurrentPage(pageIndex: number): void {
+    if (!this.pageSource) return;
+    this.pendingJumpTarget = null;
+    this.spreadLeftIndex = this.clampLeftPage(pageIndex);
+    this.resetInteractionState();
+    this.configureIdleVisual();
+    this.pageSource.warmAround(this.spreadLeftIndex);
+    this.pageChangeListener?.(this.spreadLeftIndex);
+  }
+
+  public jumpToPage(pageIndex: number): boolean {
+    if (!this.pageSource || this.turnState !== 'idle') return false;
+    const target = this.clampLeftPage(pageIndex);
+    if (target === this.spreadLeftIndex) return false;
+
+    this.pendingJumpTarget = target;
+    this.direction = target > this.spreadLeftIndex ? 'forward' : 'backward';
+    this.progress = this.direction === 'forward' ? 0 : 1;
+    if (this.direction === 'forward') this.configureForwardVisual();
+    else this.configureBackwardVisual();
+
+    this.turningSheet.mesh.visible = true;
+    this.gestureSerial += 1;
+    this.completionVelocity = 0;
+    this.twist = 0;
+    this.dragAmount = this.reducedMotion ? 0 : 0.36;
+    this.applySheetState();
+    this.beginSettle(true, 0);
+    return true;
   }
 
   public handlePointer(pointer: PointerSnapshot, camera: THREE.Camera): boolean {
@@ -232,6 +276,7 @@ export class BookRenderer {
 
   public cancelInteraction(): void {
     this.emitMotion(0, false);
+    this.pendingJumpTarget = null;
     this.resetInteractionState();
     this.configureIdleVisual();
     this.applySheetState();
@@ -275,6 +320,7 @@ export class BookRenderer {
       return;
     }
 
+    this.pendingJumpTarget = null;
     this.turningSheet.mesh.visible = true;
     this.turnState = 'dragging';
     this.gesturePointerId = pointer.id;
@@ -367,7 +413,11 @@ export class BookRenderer {
     const completedBackward = completedDirection === 'backward' && this.animationTarget === 0;
     const canCommit = this.committedGestureSerial !== this.settlingGestureSerial;
 
-    if (canCommit && completedForward) {
+    if (canCommit && (completedForward || completedBackward) && this.pendingJumpTarget !== null) {
+      this.spreadLeftIndex = this.pendingJumpTarget;
+      this.pendingJumpTarget = null;
+      this.committedGestureSerial = this.settlingGestureSerial;
+    } else if (canCommit && completedForward) {
       this.spreadLeftIndex = Math.min(this.spreadLeftIndex + 2, Math.max(0, this.pageCount - 1));
       this.committedGestureSerial = this.settlingGestureSerial;
     } else if (canCommit && completedBackward) {
@@ -465,6 +515,12 @@ export class BookRenderer {
 
   private get pageCount(): number {
     return this.pageSource?.pageCount ?? 0;
+  }
+
+  private clampLeftPage(pageIndex: number): number {
+    const maxIndex = Math.max(0, this.pageCount - 1);
+    const safeIndex = Math.max(0, Math.min(maxIndex, Math.floor(pageIndex)));
+    return Math.floor(safeIndex / 2) * 2;
   }
 
   private textureAt(index: number): THREE.Texture {
