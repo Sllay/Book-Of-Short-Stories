@@ -7,6 +7,9 @@ import { createPageStackTexture } from './MaterialTextures';
 
 const PAGE_WIDTH = 2.3;
 const PAGE_HEIGHT = 2.95;
+const COVER_WIDTH = 5.02;
+const COVER_HEIGHT = 3.28;
+const PAGE_BLOCK_WIDTH = 4.72;
 const DRAG_DISTANCE_NDC = 1.05;
 const TURN_COMMIT_PROGRESS = 0.5;
 const FLICK_MIN_PROGRESS = 0.07;
@@ -16,6 +19,7 @@ const MAX_VELOCITY_SAMPLE_MS = 160;
 
 type TurnState = 'idle' | 'dragging' | 'settling';
 export type PageTurnDirection = 'forward' | 'backward';
+export type PhysicalFoldSide = 'left' | 'right';
 
 export interface PageTurnMotion {
   readonly direction: PageTurnDirection;
@@ -33,6 +37,8 @@ export class BookRenderer {
   private readonly staticGeometries: THREE.BufferGeometry[] = [];
   private readonly staticMaterials: THREE.Material[] = [];
   private readonly ownedTextures: THREE.Texture[] = [];
+  private readonly leftStaticGroup = new THREE.Group();
+  private readonly rightStaticGroup = new THREE.Group();
   private readonly coverMaterial: THREE.MeshStandardMaterial;
   private readonly leftPageMaterial: THREE.MeshStandardMaterial;
   private readonly rightPageMaterial: THREE.MeshStandardMaterial;
@@ -90,10 +96,14 @@ export class BookRenderer {
       roughness: 0.86,
       metalness: 0
     }));
-    const coverGeometry = this.trackGeometry(new THREE.BoxGeometry(5.02, 3.28, 0.12));
-    const cover = new THREE.Mesh(coverGeometry, this.coverMaterial);
-    cover.position.z = -0.18;
-    this.root.add(cover);
+
+    const halfCoverGeometry = this.trackGeometry(new THREE.BoxGeometry(COVER_WIDTH * 0.5, COVER_HEIGHT, 0.12));
+    const leftCover = new THREE.Mesh(halfCoverGeometry, this.coverMaterial);
+    leftCover.position.set(-COVER_WIDTH * 0.25, 0, -0.18);
+    this.leftStaticGroup.add(leftCover);
+    const rightCover = new THREE.Mesh(halfCoverGeometry, this.coverMaterial);
+    rightCover.position.set(COVER_WIDTH * 0.25, 0, -0.18);
+    this.rightStaticGroup.add(rightCover);
 
     const pageStackTexture = this.trackTexture(createPageStackTexture());
     this.pageBlockMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
@@ -102,22 +112,27 @@ export class BookRenderer {
       roughness: 0.98,
       metalness: 0
     }));
-    const blockGeometry = this.trackGeometry(new THREE.BoxGeometry(4.72, 3.02, 0.16));
-    const pageBlock = new THREE.Mesh(blockGeometry, this.pageBlockMaterial);
-    pageBlock.position.z = -0.075;
-    this.root.add(pageBlock);
+    const halfBlockGeometry = this.trackGeometry(new THREE.BoxGeometry(PAGE_BLOCK_WIDTH * 0.5, 3.02, 0.16));
+    const leftBlock = new THREE.Mesh(halfBlockGeometry, this.pageBlockMaterial);
+    leftBlock.position.set(-PAGE_BLOCK_WIDTH * 0.25, 0, -0.075);
+    this.leftStaticGroup.add(leftBlock);
+    const rightBlock = new THREE.Mesh(halfBlockGeometry, this.pageBlockMaterial);
+    rightBlock.position.set(PAGE_BLOCK_WIDTH * 0.25, 0, -0.075);
+    this.rightStaticGroup.add(rightBlock);
 
     this.leftPageMaterial = this.trackMaterial(this.createPageMaterial());
     const leftGeometry = this.trackGeometry(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT));
     const leftPage = new THREE.Mesh(leftGeometry, this.leftPageMaterial);
     leftPage.position.set(-PAGE_WIDTH / 2, 0, 0.025);
-    this.root.add(leftPage);
+    this.leftStaticGroup.add(leftPage);
 
     this.rightPageMaterial = this.trackMaterial(this.createPageMaterial());
     const rightGeometry = this.trackGeometry(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT));
     const rightPage = new THREE.Mesh(rightGeometry, this.rightPageMaterial);
     rightPage.position.set(PAGE_WIDTH / 2, 0, 0.027);
-    this.root.add(rightPage);
+    this.rightStaticGroup.add(rightPage);
+
+    this.root.add(this.leftStaticGroup, this.rightStaticGroup);
 
     this.turningSheet = new PageCurlSheet(PAGE_WIDTH, PAGE_HEIGHT, this.fallbackTexture, this.fallbackTexture);
     this.turningSheet.mesh.position.z = 0.055;
@@ -170,6 +185,24 @@ export class BookRenderer {
     this.coverMaterial.color.setHex(color);
   }
 
+  public setPhysicalFold(side: PhysicalFoldSide, progress: number): void {
+    const t = THREE.MathUtils.clamp(progress, 0, 1);
+    const lift = Math.sin(Math.PI * t) * (this.reducedMotion ? 0.018 : 0.085);
+    this.turningSheet.mesh.visible = false;
+
+    this.leftStaticGroup.rotation.y = side === 'left' ? -Math.PI * t : 0;
+    this.leftStaticGroup.position.z = side === 'left' ? lift : 0;
+    this.rightStaticGroup.rotation.y = side === 'right' ? Math.PI * t : 0;
+    this.rightStaticGroup.position.z = side === 'right' ? lift : 0;
+  }
+
+  public resetPhysicalFold(): void {
+    this.leftStaticGroup.rotation.y = 0;
+    this.leftStaticGroup.position.z = 0;
+    this.rightStaticGroup.rotation.y = 0;
+    this.rightStaticGroup.position.z = 0;
+  }
+
   public setPageLighting(
     ambientColor: THREE.Color,
     keyColor: THREE.Color,
@@ -185,6 +218,7 @@ export class BookRenderer {
     this.pageSource = source;
     this.spreadLeftIndex = this.clampLeftPage(initialPageIndex);
     this.pendingJumpTarget = null;
+    this.resetPhysicalFold();
     this.resetInteractionState();
     this.configureIdleVisual();
     this.pageSource.warmAround(this.spreadLeftIndex);
@@ -196,6 +230,7 @@ export class BookRenderer {
     if (!this.pageSource) return;
     this.pendingJumpTarget = null;
     this.spreadLeftIndex = this.clampLeftPage(pageIndex);
+    this.resetPhysicalFold();
     this.resetInteractionState();
     this.configureIdleVisual();
     this.pageSource.warmAround(this.spreadLeftIndex);

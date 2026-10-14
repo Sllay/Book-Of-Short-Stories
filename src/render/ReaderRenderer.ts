@@ -13,7 +13,7 @@ export class ReaderRenderer {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
   private readonly book = new BookRenderer();
-  private readonly presentation = new BookPresentationController(this.book.root);
+  private readonly presentation = new BookPresentationController(this.book);
   private readonly hemisphere = new THREE.HemisphereLight(0xfff4dc, 0x6e5b4a, 1.55);
   private readonly keyLight = new THREE.DirectionalLight(0xffe1b0, 1.75);
   private readonly world: ReadingWorldController;
