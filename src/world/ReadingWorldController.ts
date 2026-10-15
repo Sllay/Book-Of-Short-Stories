@@ -65,6 +65,7 @@ export class ReadingWorldController {
   private currentCelestial: CelestialState = celestialState(new Date());
   private lightningPulse = 0;
   private nextLightningAt = 0;
+  private beamVisibility = 0;
 
   public constructor(
     private readonly hemisphere: THREE.HemisphereLight,
@@ -75,14 +76,14 @@ export class ReadingWorldController {
     this.mirrorMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       map: this.mirrorAtmosphere.texture,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.93,
       toneMapped: false,
       side: THREE.DoubleSide
     }));
     this.birdOverlayMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       map: this.birds.texture,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.9,
       depthWrite: false,
       toneMapped: false,
       side: THREE.DoubleSide
@@ -97,8 +98,9 @@ export class ReadingWorldController {
   public setFocusMode(enabled: boolean): void {
     if (this.focusMode === enabled) return;
     this.focusMode = enabled;
-    this.mirrorMaterial.opacity = enabled ? 0.26 : 0.88;
-    this.birdOverlayMaterial.opacity = enabled ? 0.12 : 0.82;
+    // Focus mode hides interface chrome; it must not make the physical room look dead.
+    this.mirrorMaterial.opacity = enabled ? 0.78 : 0.93;
+    this.birdOverlayMaterial.opacity = enabled ? 0.62 : 0.9;
     this.candle.setFocusMode(enabled);
     this.refreshClock(true);
   }
@@ -123,15 +125,17 @@ export class ReadingWorldController {
     this.keyLight.intensity = this.baseKeyIntensity + this.lightningPulse * 2.7;
     this.hemisphere.intensity = this.baseHemisphereIntensity + this.lightningPulse * 0.62;
 
-    const birdInterval = this.birds.active ? 90 : 1000;
+    const birdInterval = this.birds.active ? 90 : 850;
     if (nowMs - this.lastBirdUpdateAt >= birdInterval) {
       this.lastBirdUpdateAt = nowMs;
       this.birds.update(now, this.currentWeather);
     }
 
+    // Canvas atmosphere is deliberately slower than WebGL, but fast enough that clouds
+    // and rain no longer advance in visible one-second jumps.
     const atmosphereInterval = this.currentWeather.rainIntensity > 0.03 || this.lightningPulse > 0.002
-      ? 110
-      : 1000;
+      ? 90
+      : (this.focusMode ? 240 : 180);
     if (nowMs - this.lastAtmosphereRenderAt >= atmosphereInterval) {
       this.lastAtmosphereRenderAt = nowMs;
       this.renderAtmosphere(now);
@@ -221,10 +225,10 @@ export class ReadingWorldController {
         side: THREE.DoubleSide
       }));
       this.beamMaterials.push(material);
-      const beam = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(0.52, 4.7)), material);
+      const beam = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(0.62, 4.85)), material);
       beam.rotation.x = Math.PI / 2 - 0.045;
-      beam.rotation.z = index === 0 ? -0.04 : 0.04;
-      beam.position.set(index === 0 ? -0.62 : 0.56, 0, 0.95);
+      beam.rotation.z = index === 0 ? -0.055 : 0.055;
+      beam.position.set(index === 0 ? -0.66 : 0.6, 0, 0.95);
       group.add(beam);
     }
     return group;
@@ -238,11 +242,11 @@ export class ReadingWorldController {
     this.hemisphere.color.setHex(palette.ambientSky);
     this.hemisphere.groundColor.setHex(palette.ambientGround);
     const cloudDim = 1 - weather.cloudCover * 0.18 - weather.rainIntensity * 0.12;
-    this.baseHemisphereIntensity = palette.hemisphereIntensity * cloudDim * (this.focusMode ? 0.76 : 1);
+    this.baseHemisphereIntensity = palette.hemisphereIntensity * cloudDim * (this.focusMode ? 0.94 : 1);
     this.hemisphere.intensity = this.baseHemisphereIntensity;
 
     this.keyLight.color.setHex(palette.keyColor);
-    this.baseKeyIntensity = palette.keyIntensity * (1 - weather.cloudCover * 0.32) * (this.focusMode ? 1.08 : 1);
+    this.baseKeyIntensity = palette.keyIntensity * (1 - weather.cloudCover * 0.32) * (this.focusMode ? 1.02 : 1);
     this.keyLight.intensity = this.baseKeyIntensity;
 
     const activeT = celestial.sunStrength > 0.02 ? celestial.sunT : celestial.moonT;
@@ -263,21 +267,23 @@ export class ReadingWorldController {
     const sun = this.currentCelestial.sunStrength;
     const moon = this.currentCelestial.moonStrength * 0.22;
     const source = Math.max(sun, moon);
-    const passingCloud = 0.78
-      + Math.sin(this.ambientSeconds * 0.115 + 0.7) * 0.12
-      + Math.sin(this.ambientSeconds * 0.043) * 0.1;
-    const visibility = THREE.MathUtils.clamp(
+    const passingCloud = 0.72
+      + Math.sin(this.ambientSeconds * 0.115 + 0.7) * 0.16
+      + Math.sin(this.ambientSeconds * 0.043) * 0.12;
+    const targetVisibility = THREE.MathUtils.clamp(
       source
-        * (1 - this.currentWeather.cloudCover * THREE.MathUtils.clamp(passingCloud, 0.55, 1))
-        * (1 - this.currentWeather.rainIntensity * 0.45),
+        * (1 - this.currentWeather.cloudCover * THREE.MathUtils.clamp(passingCloud, 0.48, 1))
+        * (1 - this.currentWeather.rainIntensity * 0.58),
       0,
       1
     );
+    this.beamVisibility += (targetVisibility - this.beamVisibility) * 0.085;
 
+    const solar = sun >= moon;
     for (let index = 0; index < this.beamMaterials.length; index += 1) {
       const material = this.beamMaterials[index];
-      material.color.setHex(sun >= moon ? 0xffdf9d : 0xbfd5ff);
-      material.opacity = visibility * (sun >= moon ? 0.075 : 0.028) * (index === 0 ? 1 : 0.82);
+      material.color.setHex(solar ? 0xffdf9d : 0xbfd5ff);
+      material.opacity = this.beamVisibility * (solar ? 0.16 : 0.055) * (index === 0 ? 1 : 0.82);
     }
   }
 
