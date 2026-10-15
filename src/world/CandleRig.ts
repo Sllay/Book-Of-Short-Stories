@@ -10,12 +10,13 @@ const EXTINGUISH_DURATION = 1.35;
 
 export class CandleRig {
   public readonly root = new THREE.Group();
-  public readonly light = new THREE.PointLight(0xffa85c, 0.7, 5.4, 2);
+  public readonly light = new THREE.PointLight(0xffa85c, 0.9, 6.4, 1.8);
 
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
   private readonly textures: THREE.Texture[] = [];
   private readonly flame: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  private readonly flameCore: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly flameGlow: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly smoke: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly matchRoot = new THREE.Group();
@@ -70,19 +71,30 @@ export class CandleRig {
     wick.position.z = 0.565;
     this.root.add(wick);
 
-    const flameMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0xffbf62, toneMapped: false }));
-    this.flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.07, 14, 12)), flameMaterial);
+    const flameMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0xffb24f, toneMapped: false }));
+    this.flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.072, 14, 12)), flameMaterial);
     this.flame.position.z = 0.67;
     this.root.add(this.flame);
+
+    const coreMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      color: 0xfff1b6,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      toneMapped: false
+    }));
+    this.flameCore = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.04, 12, 10)), coreMaterial);
+    this.flameCore.position.z = 0.665;
+    this.root.add(this.flameCore);
 
     const glowMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0xff9c4a,
       transparent: true,
-      opacity: 0.06,
+      opacity: 0.11,
       depthWrite: false,
       toneMapped: false
     }));
-    this.flameGlow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.18, 12, 10)), glowMaterial);
+    this.flameGlow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.2, 12, 10)), glowMaterial);
     this.flameGlow.position.z = 0.665;
     this.root.add(this.flameGlow);
 
@@ -117,8 +129,8 @@ export class CandleRig {
     this.matchRoot.add(matchHead);
 
     const matchFlameMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0xffb64e, toneMapped: false }));
-    this.matchFlame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.038, 10, 8)), matchFlameMaterial);
-    this.matchFlame.scale.set(0.65, 0.65, 1.35);
+    this.matchFlame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.041, 10, 8)), matchFlameMaterial);
+    this.matchFlame.scale.set(0.65, 0.65, 1.4);
     this.matchFlame.position.set(0.025, 0, 0.055);
     this.matchRoot.add(this.matchFlame);
 
@@ -172,19 +184,28 @@ export class CandleRig {
     }
 
     const flicker = 1
-      + Math.sin(ambientSeconds * 7.7) * 0.032
-      + Math.sin(ambientSeconds * 13.1 + 0.8) * 0.014
-      + Math.sin(ambientSeconds * 3.2 + 2.1) * 0.011;
-    const pulse = THREE.MathUtils.clamp(flicker, 0.94, 1.07);
-    const focusFactor = this.focusMode ? 0.5 : 1;
+      + Math.sin(ambientSeconds * 7.7) * 0.036
+      + Math.sin(ambientSeconds * 13.1 + 0.8) * 0.017
+      + Math.sin(ambientSeconds * 3.2 + 2.1) * 0.012;
+    const pulse = THREE.MathUtils.clamp(flicker, 0.935, 1.075);
+    const focusFactor = this.focusMode ? 0.88 : 1;
 
-    this.light.intensity = this.baseIntensity * visible * flicker * focusFactor;
-    this.flame.scale.set(0.66 * pulse * visible, 0.66 * pulse * visible, 1.48 / pulse * visible);
-    this.flame.position.x = Math.sin(ambientSeconds * 5.8) * 0.009;
-    this.flame.position.y = Math.sin(ambientSeconds * 4.1 + 1.2) * 0.007;
-    this.flameGlow.scale.setScalar(Math.max(0.001, visible * (1 + Math.sin(ambientSeconds * 4.8) * 0.035)));
+    // The light is part of the night composition, not decoration to almost disable in
+    // Focus Mode. It still softens slightly there, while continuing to reach the book.
+    this.light.intensity = this.baseIntensity * visible * flicker * focusFactor * 1.18;
+    this.flame.scale.set(0.66 * pulse * visible, 0.66 * pulse * visible, 1.52 / pulse * visible);
+    this.flameCore.scale.set(0.47 * pulse * visible, 0.47 * pulse * visible, 1.05 / pulse * visible);
+
+    const swayX = Math.sin(ambientSeconds * 5.8) * 0.009;
+    const swayY = Math.sin(ambientSeconds * 4.1 + 1.2) * 0.007;
+    this.flame.position.x = swayX;
+    this.flame.position.y = swayY;
+    this.flameCore.position.x = swayX * 0.55;
+    this.flameCore.position.y = swayY * 0.55;
+    this.flameGlow.scale.setScalar(Math.max(0.001, visible * (1 + Math.sin(ambientSeconds * 4.8) * 0.045)));
 
     this.flame.visible = visible > 0.015;
+    this.flameCore.visible = visible > 0.025;
     this.flameGlow.visible = visible > 0.02;
     this.updateSmoke();
   }
@@ -233,11 +254,13 @@ export class CandleRig {
     const eased = 1 - THREE.MathUtils.smoothstep(t, 0, 1);
     this.flame.rotation.y = Math.sin(t * Math.PI * 5) * 0.18 * t;
     this.flame.rotation.x = Math.sin(t * Math.PI * 3) * 0.1 * t;
+    this.flameCore.rotation.copy(this.flame.rotation);
     if (t >= 1) {
       this.phase = 'off';
       this.phaseTime = 0;
       this.smokeTime = 0;
       this.flame.rotation.set(0, 0, 0);
+      this.flameCore.rotation.set(0, 0, 0);
       return 0;
     }
     return eased;
@@ -261,9 +284,12 @@ export class CandleRig {
   }
 
   private setFlameVisibility(value: number): void {
-    this.flame.scale.setScalar(Math.max(0.001, value));
-    this.flameGlow.scale.setScalar(Math.max(0.001, value));
+    const safe = Math.max(0.001, value);
+    this.flame.scale.setScalar(safe);
+    this.flameCore.scale.setScalar(safe);
+    this.flameGlow.scale.setScalar(safe);
     this.flame.visible = value > 0;
+    this.flameCore.visible = value > 0;
     this.flameGlow.visible = value > 0;
     this.light.intensity = this.baseIntensity * value;
   }

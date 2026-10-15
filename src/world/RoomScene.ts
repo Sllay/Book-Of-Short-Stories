@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { createFloorTexture, createWallTexture, createWoodTexture } from './WorldMaterialTextures';
 
+const WALL_NEUTRAL = new THREE.Color(0x8d756a);
+
 export class RoomScene {
   public readonly root = new THREE.Group();
 
@@ -20,91 +22,103 @@ export class RoomScene {
     this.deskMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: woodTexture,
-      roughness: 0.88,
+      roughness: 0.86,
       metalness: 0,
       emissive: 0x392115,
       emissiveIntensity: 0.025
     }));
     this.edgeMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x6a4631,
+      color: 0x69432e,
       map: woodTexture,
-      roughness: 0.91,
+      roughness: 0.9,
       metalness: 0,
       emissive: 0x2b1a12,
       emissiveIntensity: 0.03
     }));
 
+    // Desk: keep the reading surface where the book already expects it, but give the
+    // front and side enough thickness to read as furniture instead of a flat texture.
     const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), this.deskMaterial);
     desk.position.set(0, 0.14, -0.48);
     this.root.add(desk);
 
-    const frontEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.28, 0.2, 0.28)), this.edgeMaterial);
-    frontEdge.position.set(0, -2.61, -0.43);
+    const frontEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.28, 0.22, 0.34)), this.edgeMaterial);
+    frontEdge.position.set(0, -2.61, -0.4);
     this.root.add(frontEdge);
 
-    const apron = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(8.85, 0.16, 0.64)), this.edgeMaterial);
-    apron.position.set(0, -2.66, -0.79);
+    const apron = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(8.85, 0.34, 0.56)), this.edgeMaterial);
+    apron.position.set(0, -2.78, -0.72);
     this.root.add(apron);
 
-    const rightEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.2, 5.45, 0.3)), this.edgeMaterial);
-    rightEdge.position.set(4.57, 0.13, -0.46);
+    const rightEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.22, 5.45, 0.34)), this.edgeMaterial);
+    rightEdge.position.set(4.57, 0.13, -0.43);
     this.root.add(rightEdge);
 
-    const legGeometry = this.trackGeometry(new THREE.BoxGeometry(0.32, 0.34, 1.4));
+    const legGeometry = this.trackGeometry(new THREE.BoxGeometry(0.36, 0.42, 1.45));
     const frontLeftLeg = new THREE.Mesh(legGeometry, this.edgeMaterial);
-    frontLeftLeg.position.set(-4.05, -2.34, -1.12);
+    frontLeftLeg.position.set(-4.05, -2.55, -1.05);
     this.root.add(frontLeftLeg);
     const frontRightLeg = new THREE.Mesh(legGeometry, this.edgeMaterial);
-    frontRightLeg.position.set(4.05, -2.34, -1.12);
+    frontRightLeg.position.set(4.05, -2.55, -1.05);
     this.root.add(frontRightLeg);
 
+    // Floor is intentionally lighter and warmer than the plaster wall. The tilt makes
+    // the upper edge recede from the camera, giving the lower room an actual floor read.
     this.floorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xc3a585,
+      color: 0xc79f73,
       map: floorTexture,
-      roughness: 0.96,
-      metalness: 0,
-      emissive: 0x4b3828,
-      emissiveIntensity: 0.035
-    }));
-    const floor = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(11.2, 9.2, 0.2)), this.floorMaterial);
-    floor.position.set(0, -0.45, -1.73);
-    this.root.add(floor);
-
-    this.wallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x73594c,
-      map: wallTexture,
-      roughness: 0.99,
+      roughness: 0.93,
       metalness: 0,
       side: THREE.DoubleSide,
-      emissive: 0x33241f,
+      emissive: 0x5a4028,
+      emissiveIntensity: 0.035
+    }));
+    const floor = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(12.4, 6.2)), this.floorMaterial);
+    floor.position.set(0, -2.55, -1.46);
+    floor.rotation.x = -0.38;
+    this.root.add(floor);
+
+    // The wall now faces the camera as one continuous plaster plane. Previously the
+    // geometry mostly extended through depth, which made the floor/background read as
+    // the wall and created inconsistent patches around the mirror.
+    this.wallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x806a61,
+      map: wallTexture,
+      roughness: 0.985,
+      metalness: 0,
+      side: THREE.DoubleSide,
+      emissive: 0x382c29,
       emissiveIntensity: 0.04
     }));
 
-    const rearWall = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.25, 0.16, 5.15)), this.wallMaterial);
-    rearWall.position.set(0, 3.48, 0.78);
-    this.root.add(rearWall);
+    const backWall = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(12.4, 6.4)), this.wallMaterial);
+    backWall.position.set(0, 2.42, -1.68);
+    this.root.add(backWall);
 
-    const rightWall = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.16, 6.95, 5.15)), this.wallMaterial);
-    rightWall.position.set(4.56, 0.02, 0.78);
-    this.root.add(rightWall);
+    const sideWall = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(3.6, 6.4)), this.wallMaterial);
+    sideWall.position.set(5.45, 1.55, -0.15);
+    sideWall.rotation.y = -Math.PI / 2 + 0.04;
+    this.root.add(sideWall);
 
     const trimMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x4a352b,
-      roughness: 0.92,
-      metalness: 0
+      color: 0x503a30,
+      roughness: 0.91,
+      metalness: 0,
+      emissive: 0x241913,
+      emissiveIntensity: 0.025
     }));
-    const rearBaseboard = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.25, 0.11, 0.18)), trimMaterial);
-    rearBaseboard.position.set(0, 3.36, -1.48);
-    this.root.add(rearBaseboard);
+    const baseboard = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(11.65, 0.13, 0.13)), trimMaterial);
+    baseboard.position.set(0, -0.58, -1.5);
+    this.root.add(baseboard);
 
-    const rightBaseboard = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.11, 6.85, 0.18)), trimMaterial);
-    rightBaseboard.position.set(4.44, 0, -1.48);
-    this.root.add(rightBaseboard);
+    const cornerTrim = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.12, 6.0, 0.12)), trimMaterial);
+    cornerTrim.position.set(5.12, 2.08, -1.24);
+    this.root.add(cornerTrim);
 
     const contactMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0x20140e,
       transparent: true,
-      opacity: 0.11,
+      opacity: 0.105,
       depthWrite: false,
       side: THREE.DoubleSide
     }));
@@ -127,25 +141,24 @@ export class RoomScene {
       this.trackGeometry(new THREE.PlaneGeometry(0.8, 0.27)),
       signatureMaterial
     );
-    // Keep the mark subtle, but place it inside the candle's warm falloff so the
-    // engraved highlight comes alive at night instead of reading as a black stamp.
     signature.position.set(-2.82, 0.18, -0.287);
     signature.rotation.z = -0.028;
     this.root.add(signature);
   }
 
   public setWallColor(hex: number): void {
-    this.wallMaterial.color.setHex(hex);
-    this.wallMaterial.emissive.set(new THREE.Color(hex).multiplyScalar(0.42));
+    const coherent = new THREE.Color(hex).lerp(WALL_NEUTRAL, 0.32);
+    this.wallMaterial.color.copy(coherent);
+    this.wallMaterial.emissive.copy(coherent).multiplyScalar(0.38);
   }
 
   public setAmbientReadability(hemisphereIntensity: number): void {
     const normalized = THREE.MathUtils.clamp((hemisphereIntensity - 0.62) / 0.82, 0, 1);
     const night = 1 - normalized;
-    this.wallMaterial.emissiveIntensity = 0.035 + night * 0.17;
-    this.floorMaterial.emissiveIntensity = 0.025 + night * 0.13;
-    this.deskMaterial.emissiveIntensity = 0.018 + night * 0.085;
-    this.edgeMaterial.emissiveIntensity = 0.022 + night * 0.075;
+    this.wallMaterial.emissiveIntensity = 0.045 + night * 0.13;
+    this.floorMaterial.emissiveIntensity = 0.035 + night * 0.105;
+    this.deskMaterial.emissiveIntensity = 0.022 + night * 0.082;
+    this.edgeMaterial.emissiveIntensity = 0.026 + night * 0.072;
   }
 
   public dispose(): void {
