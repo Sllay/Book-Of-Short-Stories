@@ -23,33 +23,50 @@ export class ClockRig {
     this.texture.magFilter = THREE.LinearFilter;
     this.texture.generateMipmaps = false;
 
-    this.root.position.set(1.08, 3.36, 1.22);
-    this.root.rotation.x = Math.PI / 2;
+    // The old clock lived above the camera crop and its face was almost edge-on.
+    // Keep it beside the round mirror, tilted with the same tabletop composition.
+    this.root.position.set(1.26, 2.28, 0.42);
+    this.root.rotation.x = Math.PI / 2 - 0.12;
+    this.root.rotation.z = 0.025;
 
     const faceMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: this.texture,
-      roughness: 0.84,
+      roughness: 0.78,
       metalness: 0,
       side: THREE.DoubleSide
     }));
-    const face = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.38, 48)), faceMaterial);
-    face.position.z = 0.028;
+    const face = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.4, 48)), faceMaterial);
+    face.position.z = 0.03;
     this.root.add(face);
 
     const frameMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x3d2c24,
-      roughness: 0.66,
-      metalness: 0.08
+      roughness: 0.64,
+      metalness: 0.09,
+      emissive: 0x160f0b,
+      emissiveIntensity: 0.035
     }));
-    const ring = new THREE.Mesh(this.trackGeometry(new THREE.RingGeometry(0.38, 0.46, 48)), frameMaterial);
+    const ring = new THREE.Mesh(this.trackGeometry(new THREE.RingGeometry(0.4, 0.48, 48)), frameMaterial);
     ring.position.z = 0.018;
     this.root.add(ring);
 
-    const back = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.46, 0.46, 0.07, 48)), frameMaterial);
+    const back = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.48, 0.48, 0.075, 48)), frameMaterial);
     back.rotation.x = Math.PI / 2;
-    back.position.z = -0.015;
+    back.position.z = -0.018;
     this.root.add(back);
+
+    const glassMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.055,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide
+    }));
+    const glass = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.385, 40)), glassMaterial);
+    glass.position.z = 0.041;
+    this.root.add(glass);
 
     this.update(new Date(), true);
   }
@@ -73,43 +90,55 @@ export class ClockRig {
     const center = size / 2;
 
     context.clearRect(0, 0, size, size);
-    const faceGradient = context.createRadialGradient(center - 26, center - 34, 8, center, center, center);
-    faceGradient.addColorStop(0, '#f7f0df');
-    faceGradient.addColorStop(1, '#d8ccb5');
+    const faceGradient = context.createRadialGradient(center - 30, center - 38, 8, center, center, center);
+    faceGradient.addColorStop(0, '#fbf5e7');
+    faceGradient.addColorStop(0.68, '#e7dcc7');
+    faceGradient.addColorStop(1, '#cbbca3');
     context.fillStyle = faceGradient;
     context.beginPath();
     context.arc(center, center, 124, 0, Math.PI * 2);
     context.fill();
 
     context.strokeStyle = 'rgba(56,43,34,.72)';
-    context.fillStyle = 'rgba(56,43,34,.78)';
+    context.fillStyle = 'rgba(56,43,34,.82)';
     context.lineCap = 'round';
     for (let mark = 0; mark < 60; mark += 1) {
       const angle = mark / 60 * Math.PI * 2 - Math.PI / 2;
       const major = mark % 5 === 0;
-      const inner = major ? 93 : 101;
+      const inner = major ? 91 : 101;
       const outer = 111;
-      context.lineWidth = major ? 3.2 : 1.1;
+      context.lineWidth = major ? 3.4 : 1.05;
       context.beginPath();
       context.moveTo(center + Math.cos(angle) * inner, center + Math.sin(angle) * inner);
       context.lineTo(center + Math.cos(angle) * outer, center + Math.sin(angle) * outer);
       context.stroke();
     }
 
+    // Four numerals make it immediately read as a real clock from the reader camera,
+    // while keeping the prop discreet beside the mirror.
+    context.font = '600 19px Georgia, serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = 'rgba(55,42,33,.82)';
+    context.fillText('12', center, 38);
+    context.fillText('3', 218, center + 1);
+    context.fillText('6', center, 218);
+    context.fillText('9', 38, center + 1);
+
     const hour = (date.getHours() % 12) + date.getMinutes() / 60;
     const minute = date.getMinutes() + date.getSeconds() / 60;
     const second = date.getSeconds();
-    this.drawHand(hour / 12 * Math.PI * 2 - Math.PI / 2, 54, 6.2, '#3a2c24');
-    this.drawHand(minute / 60 * Math.PI * 2 - Math.PI / 2, 77, 4.1, '#3a2c24');
-    this.drawHand(second / 60 * Math.PI * 2 - Math.PI / 2, 82, 1.7, '#9a4b35');
+    this.drawHand(hour / 12 * Math.PI * 2 - Math.PI / 2, 54, 6.4, '#352820');
+    this.drawHand(minute / 60 * Math.PI * 2 - Math.PI / 2, 78, 4.2, '#352820');
+    this.drawHand(second / 60 * Math.PI * 2 - Math.PI / 2, 84, 1.8, '#a04e38');
 
-    context.fillStyle = '#3a2c24';
+    context.fillStyle = '#34271f';
     context.beginPath();
-    context.arc(center, center, 6, 0, Math.PI * 2);
+    context.arc(center, center, 6.2, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = '#c07850';
+    context.fillStyle = '#c67b52';
     context.beginPath();
-    context.arc(center, center, 2.3, 0, Math.PI * 2);
+    context.arc(center, center, 2.4, 0, Math.PI * 2);
     context.fill();
 
     this.texture.needsUpdate = true;
