@@ -52,7 +52,6 @@ export class ReadingWorldController {
   private readonly ambientAudio = new AmbientWeatherAudio();
   private readonly mirrorMaterial: THREE.MeshBasicMaterial;
   private readonly birdOverlayMaterial: THREE.MeshBasicMaterial;
-  private readonly beamMaterials: THREE.MeshBasicMaterial[] = [];
   private baseKeyIntensity = 1;
   private baseHemisphereIntensity = 1;
   private ambientSeconds = 0;
@@ -65,7 +64,6 @@ export class ReadingWorldController {
   private currentCelestial: CelestialState = celestialState(new Date());
   private lightningPulse = 0;
   private nextLightningAt = 0;
-  private beamVisibility = 0;
 
   public constructor(
     private readonly hemisphere: THREE.HemisphereLight,
@@ -90,7 +88,6 @@ export class ReadingWorldController {
     }));
 
     this.root.add(this.createMirror());
-    this.root.add(this.createWindowBeams());
     this.root.add(this.candle.root, this.candle.light);
     this.refreshClock(true);
   }
@@ -118,7 +115,6 @@ export class ReadingWorldController {
     this.clock.update(now);
     this.candle.update(now, safeDelta, this.ambientSeconds);
     this.updateLightning(safeDelta);
-    this.updateWindowBeams();
 
     this.keyLight.intensity = this.baseKeyIntensity + this.lightningPulse * 2.7;
     this.hemisphere.intensity = this.baseHemisphereIntensity + this.lightningPulse * 0.62;
@@ -211,30 +207,6 @@ export class ReadingWorldController {
     return mirror;
   }
 
-  private createWindowBeams(): THREE.Group {
-    const group = new THREE.Group();
-    group.position.set(0, -0.1, 0.25);
-
-    for (let index = 0; index < 2; index += 1) {
-      const material = this.trackMaterial(new THREE.MeshBasicMaterial({
-        color: index === 0 ? 0xffdf9d : 0xffe9be,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-        side: THREE.DoubleSide
-      }));
-      this.beamMaterials.push(material);
-      const beam = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(0.62, 4.85)), material);
-      beam.rotation.x = Math.PI / 2 - 0.045;
-      beam.rotation.z = index === 0 ? -0.055 : 0.055;
-      beam.position.set(index === 0 ? -0.66 : 0.6, 0, 0.95);
-      group.add(beam);
-    }
-    return group;
-  }
-
   private applyLighting(date: Date): void {
     const palette = this.currentPalette;
     const weather = this.currentWeather;
@@ -262,30 +234,6 @@ export class ReadingWorldController {
     this.room.setWallColor(palette.wallColor);
     this.room.setAmbientReadability(this.baseHemisphereIntensity);
     if (date.getMinutes() % 15 === 0) this.weather.refreshIfGranted();
-  }
-
-  private updateWindowBeams(): void {
-    const sun = this.currentCelestial.sunStrength;
-    const moon = this.currentCelestial.moonStrength * 0.22;
-    const source = Math.max(sun, moon);
-    const passingCloud = 0.72
-      + Math.sin(this.ambientSeconds * 0.115 + 0.7) * 0.16
-      + Math.sin(this.ambientSeconds * 0.043) * 0.12;
-    const targetVisibility = THREE.MathUtils.clamp(
-      source
-        * (1 - this.currentWeather.cloudCover * THREE.MathUtils.clamp(passingCloud, 0.48, 1))
-        * (1 - this.currentWeather.rainIntensity * 0.58),
-      0,
-      1
-    );
-    this.beamVisibility += (targetVisibility - this.beamVisibility) * 0.085;
-
-    const solar = sun >= moon;
-    for (let index = 0; index < this.beamMaterials.length; index += 1) {
-      const material = this.beamMaterials[index];
-      material.color.setHex(solar ? 0xffdf9d : 0xbfd5ff);
-      material.opacity = this.beamVisibility * (solar ? 0.16 : 0.055) * (index === 0 ? 1 : 0.82);
-    }
   }
 
   private updateLightning(deltaMs: number): void {
