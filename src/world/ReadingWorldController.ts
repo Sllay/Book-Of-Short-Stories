@@ -98,9 +98,8 @@ export class ReadingWorldController {
   public setFocusMode(enabled: boolean): void {
     if (this.focusMode === enabled) return;
     this.focusMode = enabled;
-    // Focus mode hides interface chrome; it must not make the physical room look dead.
-    this.mirrorMaterial.opacity = enabled ? 0.78 : 0.93;
-    this.birdOverlayMaterial.opacity = enabled ? 0.62 : 0.9;
+    this.mirrorMaterial.opacity = enabled ? 0.8 : 0.93;
+    this.birdOverlayMaterial.opacity = enabled ? 0.78 : 0.9;
     this.candle.setFocusMode(enabled);
     this.refreshClock(true);
   }
@@ -120,19 +119,21 @@ export class ReadingWorldController {
     this.candle.update(now, safeDelta, this.ambientSeconds);
     this.updateLightning(safeDelta);
     this.updateWindowBeams();
-    this.ambientAudio.update(this.currentWeather.rainIntensity, this.lightningPulse);
 
     this.keyLight.intensity = this.baseKeyIntensity + this.lightningPulse * 2.7;
     this.hemisphere.intensity = this.baseHemisphereIntensity + this.lightningPulse * 0.62;
 
-    const birdInterval = this.birds.active ? 90 : 850;
+    const birdInterval = this.birds.active ? 80 : 500;
     if (nowMs - this.lastBirdUpdateAt >= birdInterval) {
       this.lastBirdUpdateAt = nowMs;
       this.birds.update(now, this.currentWeather);
     }
 
-    // Canvas atmosphere is deliberately slower than WebGL, but fast enough that clouds
-    // and rain no longer advance in visible one-second jumps.
+    // Bird chirps were implemented originally but never received the flock's active
+    // state from the world controller, so they could never play. Keep sound coupled to
+    // the visible passage and to the same global audio preference as page foley.
+    this.ambientAudio.update(this.currentWeather.rainIntensity, this.lightningPulse, this.birds.active);
+
     const atmosphereInterval = this.currentWeather.rainIntensity > 0.03 || this.lightningPulse > 0.002
       ? 90
       : (this.focusMode ? 240 : 180);

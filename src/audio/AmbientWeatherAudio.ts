@@ -47,9 +47,9 @@ export class AmbientWeatherAudio {
     if (this.context?.state === 'running') this.applyRainLevel();
 
     const now = Date.now();
-    if (birdsActive && this.rainIntensity < 0.12 && this.enabled && now >= this.nextBirdChirpAt) {
+    if (birdsActive && this.rainIntensity < 0.14 && this.enabled && now >= this.nextBirdChirpAt) {
       this.playBirdChirp();
-      this.nextBirdChirpAt = now + 1800 + Math.random() * 3300;
+      this.nextBirdChirpAt = now + 1500 + Math.random() * 2800;
     } else if (!birdsActive) {
       this.nextBirdChirpAt = 0;
     }
@@ -87,18 +87,20 @@ export class AmbientWeatherAudio {
       if (this.rainVoice) {
         const now = context.currentTime;
         this.rainVoice.gain.gain.cancelScheduledValues(now);
-        this.rainVoice.gain.gain.setTargetAtTime(0.0001, now, 0.16);
+        this.rainVoice.gain.gain.setTargetAtTime(0.0001, now, 0.2);
       }
       return;
     }
 
     const voice = this.rainVoice ?? this.startRainVoice(context);
     const now = context.currentTime;
-    const target = 0.006 + this.rainIntensity * 0.038;
+    // The first version sat below the page foley on phone speakers. Keep it ambient,
+    // but give light rain enough body to be heard without headphones.
+    const target = 0.011 + this.rainIntensity * 0.056;
     voice.gain.gain.cancelScheduledValues(now);
-    voice.gain.gain.setTargetAtTime(target, now, 0.22);
-    voice.highpass.frequency.setTargetAtTime(480 + this.rainIntensity * 180, now, 0.3);
-    voice.lowpass.frequency.setTargetAtTime(2900 + this.rainIntensity * 2100, now, 0.3);
+    voice.gain.gain.setTargetAtTime(target, now, 0.28);
+    voice.highpass.frequency.setTargetAtTime(430 + this.rainIntensity * 210, now, 0.34);
+    voice.lowpass.frequency.setTargetAtTime(3100 + this.rainIntensity * 2300, now, 0.34);
   }
 
   private startRainVoice(context: AudioContext): RainVoice {
@@ -109,12 +111,12 @@ export class AmbientWeatherAudio {
 
     const highpass = context.createBiquadFilter();
     highpass.type = 'highpass';
-    highpass.frequency.value = 520;
+    highpass.frequency.value = 500;
     highpass.Q.value = 0.18;
 
     const lowpass = context.createBiquadFilter();
     lowpass.type = 'lowpass';
-    lowpass.frequency.value = 3800;
+    lowpass.frequency.value = 4100;
     lowpass.Q.value = 0.24;
 
     const gain = context.createGain();
@@ -147,25 +149,25 @@ export class AmbientWeatherAudio {
     if (!context || context.state !== 'running') return;
     const now = context.currentTime;
     const pan = context.createStereoPanner();
-    pan.pan.value = (Math.random() - 0.5) * 0.7;
+    pan.pan.value = (Math.random() - 0.5) * 0.78;
     const gain = context.createGain();
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.007, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    gain.gain.exponentialRampToValueAtTime(0.012, now + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
     gain.connect(pan);
     pan.connect(context.destination);
 
     for (let note = 0; note < 2; note += 1) {
       const oscillator = context.createOscillator();
       oscillator.type = 'sine';
-      const start = now + note * 0.075;
-      const base = 1750 + Math.random() * 520 + note * 180;
+      const start = now + note * 0.078;
+      const base = 1680 + Math.random() * 560 + note * 180;
       oscillator.frequency.setValueAtTime(base, start);
-      oscillator.frequency.exponentialRampToValueAtTime(base * (1.28 + Math.random() * 0.12), start + 0.075);
-      oscillator.frequency.exponentialRampToValueAtTime(base * 0.92, start + 0.15);
+      oscillator.frequency.exponentialRampToValueAtTime(base * (1.28 + Math.random() * 0.12), start + 0.078);
+      oscillator.frequency.exponentialRampToValueAtTime(base * 0.92, start + 0.165);
       oscillator.connect(gain);
       oscillator.start(start);
-      oscillator.stop(start + 0.17);
+      oscillator.stop(start + 0.185);
     }
   }
 
@@ -173,9 +175,9 @@ export class AmbientWeatherAudio {
     const context = this.context;
     if (!context || context.state !== 'running') return;
 
-    const delay = 0.32 + Math.random() * 0.85;
+    const delay = 0.38 + Math.random() * 1.15;
     const startAt = context.currentTime + delay;
-    const duration = 2.8 + Math.random() * 1.4;
+    const duration = 3 + Math.random() * 1.5;
     const frames = Math.max(1, Math.floor(context.sampleRate * duration));
     const buffer = context.createBuffer(1, frames, context.sampleRate);
     const samples = buffer.getChannelData(0);
@@ -187,30 +189,30 @@ export class AmbientWeatherAudio {
       const white = Math.random() * 2 - 1;
       low = low * 0.992 + white * 0.008;
       medium = medium * 0.94 + white * 0.06;
-      const crack = progress < 0.055 ? white * (1 - progress / 0.055) * 0.28 : 0;
-      const envelope = Math.pow(1 - progress, 2.3);
-      samples[index] = Math.tanh((low * 2.1 + medium * 0.6 + crack) * 1.6) * envelope;
+      const crack = progress < 0.055 ? white * (1 - progress / 0.055) * 0.3 : 0;
+      const envelope = Math.pow(1 - progress, 2.18);
+      samples[index] = Math.tanh((low * 2.15 + medium * 0.64 + crack) * 1.62) * envelope;
     }
 
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value = 0.88 + Math.random() * 0.1;
+    source.playbackRate.value = 0.87 + Math.random() * 0.1;
 
     const lowpass = context.createBiquadFilter();
     lowpass.type = 'lowpass';
-    lowpass.frequency.value = 620 + Math.random() * 180;
+    lowpass.frequency.value = 680 + Math.random() * 210;
     lowpass.Q.value = 0.45;
 
     const body = context.createBiquadFilter();
     body.type = 'peaking';
     body.frequency.value = 95 + Math.random() * 45;
     body.Q.value = 0.7;
-    body.gain.value = 5.5;
+    body.gain.value = 6;
 
     const gain = context.createGain();
     gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.065 + Math.random() * 0.025, startAt + 0.08);
-    gain.gain.exponentialRampToValueAtTime(0.018, startAt + duration * 0.48);
+    gain.gain.exponentialRampToValueAtTime(0.082 + Math.random() * 0.028, startAt + 0.09);
+    gain.gain.exponentialRampToValueAtTime(0.021, startAt + duration * 0.5);
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
 
     source.connect(lowpass);
