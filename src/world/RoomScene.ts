@@ -124,12 +124,12 @@ export class RoomScene {
       side: THREE.DoubleSide
     }));
     const signature = new THREE.Mesh(
-      this.trackGeometry(new THREE.PlaneGeometry(0.72, 0.24)),
+      this.trackGeometry(new THREE.PlaneGeometry(0.8, 0.27)),
       signatureMaterial
     );
     // Keep the mark subtle, but place it inside the candle's warm falloff so the
     // engraved highlight comes alive at night instead of reading as a black stamp.
-    signature.position.set(-2.66, 0.18, -0.287);
+    signature.position.set(-2.82, 0.18, -0.287);
     signature.rotation.z = -0.028;
     this.root.add(signature);
   }
@@ -180,20 +180,20 @@ function createDeskSignatureTexture(): THREE.CanvasTexture {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.textBaseline = 'middle';
 
-  const copyrightX = 112;
+  const copyrightX = 96;
   const baselineY = 82;
-  const bkX = 190;
+  const bkX = 170;
 
-  context.fillStyle = 'rgba(242, 199, 146, 0.20)';
-  context.font = '500 48px Georgia, serif';
+  context.fillStyle = 'rgba(242, 199, 146, 0.22)';
+  context.font = '500 58px Georgia, serif';
   context.fillText('©', copyrightX + 2, baselineY + 3);
-  context.font = '600 72px Georgia, serif';
+  context.font = '600 78px Georgia, serif';
   context.fillText('Bk', bkX + 2, baselineY + 3);
 
-  context.fillStyle = 'rgba(44, 25, 15, 0.62)';
-  context.font = '500 48px Georgia, serif';
+  context.fillStyle = 'rgba(44, 25, 15, 0.66)';
+  context.font = '500 58px Georgia, serif';
   context.fillText('©', copyrightX, baselineY);
-  context.font = '600 72px Georgia, serif';
+  context.font = '600 78px Georgia, serif';
   context.fillText('Bk', bkX, baselineY);
 
   const texture = new THREE.CanvasTexture(canvas);
