@@ -2,12 +2,15 @@ import type { RenderMode } from '../core/types';
 
 export interface RenderFrameContext { readonly now: number; readonly deltaMs: number; }
 
+const STATIC_AMBIENT_FPS = 8;
+
 export class RenderScheduler {
   private mode: RenderMode = 'static';
   private animationFrameId: number | null = null;
   private dirty = true;
   private lastFrameAt = 0;
   private ambientFps = 24;
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   public constructor(private readonly onFrame: (context: RenderFrameContext) => void) {}
 
@@ -63,9 +66,12 @@ export class RenderScheduler {
     if (this.mode === 'hidden') return;
 
     const ambientInterval = 1000 / this.ambientFps;
+    const staticAmbient = this.mode === 'static' && !this.reducedMotion.matches;
+    const staticInterval = 1000 / Math.min(this.ambientFps, STATIC_AMBIENT_FPS);
     const shouldRender = this.mode === 'interactive'
       || this.dirty
-      || (this.mode === 'ambient' && (this.lastFrameAt === 0 || now - this.lastFrameAt >= ambientInterval));
+      || (this.mode === 'ambient' && (this.lastFrameAt === 0 || now - this.lastFrameAt >= ambientInterval))
+      || (staticAmbient && (this.lastFrameAt === 0 || now - this.lastFrameAt >= staticInterval));
 
     if (shouldRender) {
       const deltaMs = this.lastFrameAt === 0 ? 0 : now - this.lastFrameAt;
@@ -74,7 +80,7 @@ export class RenderScheduler {
       this.onFrame({ now, deltaMs });
     }
 
-    if (this.mode === 'interactive' || this.mode === 'ambient' || this.dirty) this.ensureScheduled();
+    if (this.mode === 'interactive' || this.mode === 'ambient' || staticAmbient || this.dirty) this.ensureScheduled();
   };
 
   private cancel(): void {
