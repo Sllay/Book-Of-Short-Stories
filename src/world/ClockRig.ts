@@ -11,8 +11,8 @@ export class ClockRig {
   private lastSecond = -1;
 
   public constructor() {
-    this.canvas.width = 256;
-    this.canvas.height = 256;
+    this.canvas.width = 512;
+    this.canvas.height = 220;
     const context = this.canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D indisponível para o relógio.');
     this.context = context;
@@ -23,50 +23,62 @@ export class ClockRig {
     this.texture.magFilter = THREE.LinearFilter;
     this.texture.generateMipmaps = false;
 
-    // The old clock lived above the camera crop and its face was almost edge-on.
-    // Keep it beside the round mirror, tilted with the same tabletop composition.
-    this.root.position.set(1.26, 2.28, 0.42);
-    this.root.rotation.x = Math.PI / 2 - 0.12;
-    this.root.rotation.z = 0.025;
+    // A compact bedside-style digital clock is much easier to read from the reader
+    // camera than the old foreshortened analog face. Keep it beside the mirror but
+    // almost front-facing so the time stays legible at every supported zoom level.
+    this.root.position.set(1.24, 2.26, 0.43);
+    this.root.rotation.x = 0.12;
+    this.root.rotation.z = 0.018;
 
-    const faceMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      map: this.texture,
-      roughness: 0.78,
-      metalness: 0,
-      side: THREE.DoubleSide
+    const bodyMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x211d1a,
+      roughness: 0.72,
+      metalness: 0.08,
+      emissive: 0x090807,
+      emissiveIntensity: 0.05
     }));
-    const face = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.4, 48)), faceMaterial);
-    face.position.z = 0.03;
-    this.root.add(face);
+    const body = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(1.28, 0.62, 0.2)), bodyMaterial);
+    this.root.add(body);
 
-    const frameMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x3d2c24,
+    const bezelMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x332c27,
       roughness: 0.64,
-      metalness: 0.09,
-      emissive: 0x160f0b,
+      metalness: 0.05,
+      emissive: 0x0d0b09,
       emissiveIntensity: 0.035
     }));
-    const ring = new THREE.Mesh(this.trackGeometry(new THREE.RingGeometry(0.4, 0.48, 48)), frameMaterial);
-    ring.position.z = 0.018;
-    this.root.add(ring);
+    const bezel = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(1.11, 0.43, 0.035)), bezelMaterial);
+    bezel.position.z = 0.116;
+    this.root.add(bezel);
 
-    const back = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.48, 0.48, 0.075, 48)), frameMaterial);
-    back.rotation.x = Math.PI / 2;
-    back.position.z = -0.018;
-    this.root.add(back);
+    const screenMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: this.texture,
+      toneMapped: false,
+      side: THREE.DoubleSide
+    }));
+    const screen = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(1.02, 0.34)), screenMaterial);
+    screen.position.z = 0.137;
+    this.root.add(screen);
 
     const glassMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: 0xfff1da,
       transparent: true,
-      opacity: 0.055,
+      opacity: 0.035,
       depthWrite: false,
       toneMapped: false,
       side: THREE.DoubleSide
     }));
-    const glass = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.385, 40)), glassMaterial);
-    glass.position.z = 0.041;
+    const glass = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(1.015, 0.335)), glassMaterial);
+    glass.position.z = 0.143;
     this.root.add(glass);
+
+    const footGeometry = this.trackGeometry(new THREE.BoxGeometry(0.24, 0.08, 0.16));
+    for (const x of [-0.43, 0.43]) {
+      const foot = new THREE.Mesh(footGeometry, bodyMaterial);
+      foot.position.set(x, -0.34, -0.025);
+      this.root.add(foot);
+    }
 
     this.update(new Date(), true);
   }
@@ -75,7 +87,7 @@ export class ClockRig {
     const second = date.getSeconds();
     if (!force && second === this.lastSecond) return;
     this.lastSecond = second;
-    this.drawFace(date);
+    this.drawDisplay(date);
   }
 
   public dispose(): void {
@@ -84,76 +96,45 @@ export class ClockRig {
     for (const material of this.materials) material.dispose();
   }
 
-  private drawFace(date: Date): void {
+  private drawDisplay(date: Date): void {
     const context = this.context;
-    const size = this.canvas.width;
-    const center = size / 2;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
 
-    context.clearRect(0, 0, size, size);
-    const faceGradient = context.createRadialGradient(center - 30, center - 38, 8, center, center, center);
-    faceGradient.addColorStop(0, '#fbf5e7');
-    faceGradient.addColorStop(0.68, '#e7dcc7');
-    faceGradient.addColorStop(1, '#cbbca3');
-    context.fillStyle = faceGradient;
-    context.beginPath();
-    context.arc(center, center, 124, 0, Math.PI * 2);
-    context.fill();
+    context.clearRect(0, 0, width, height);
 
-    context.strokeStyle = 'rgba(56,43,34,.72)';
-    context.fillStyle = 'rgba(56,43,34,.82)';
-    context.lineCap = 'round';
-    for (let mark = 0; mark < 60; mark += 1) {
-      const angle = mark / 60 * Math.PI * 2 - Math.PI / 2;
-      const major = mark % 5 === 0;
-      const inner = major ? 91 : 101;
-      const outer = 111;
-      context.lineWidth = major ? 3.4 : 1.05;
-      context.beginPath();
-      context.moveTo(center + Math.cos(angle) * inner, center + Math.sin(angle) * inner);
-      context.lineTo(center + Math.cos(angle) * outer, center + Math.sin(angle) * outer);
-      context.stroke();
+    const background = context.createLinearGradient(0, 0, 0, height);
+    background.addColorStop(0, '#080908');
+    background.addColorStop(0.56, '#10120f');
+    background.addColorStop(1, '#060706');
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, height);
+
+    context.fillStyle = 'rgba(255, 203, 112, 0.05)';
+    for (let line = 0; line < 7; line += 1) {
+      context.fillRect(20, 25 + line * 26, width - 40, 1);
     }
 
-    // Four numerals make it immediately read as a real clock from the reader camera,
-    // while keeping the prop discreet beside the mirror.
-    context.font = '600 19px Georgia, serif';
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const colon = date.getSeconds() % 2 === 0 ? ':' : ' ';
+    const time = `${hours}${colon}${minutes}`;
+
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillStyle = 'rgba(55,42,33,.82)';
-    context.fillText('12', center, 38);
-    context.fillText('3', 218, center + 1);
-    context.fillText('6', center, 218);
-    context.fillText('9', 38, center + 1);
+    context.shadowColor = 'rgba(255, 150, 56, 0.72)';
+    context.shadowBlur = 22;
+    context.fillStyle = '#ffb257';
+    context.font = '700 142px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    context.fillText(time, width * 0.5, height * 0.52, width - 44);
 
-    const hour = (date.getHours() % 12) + date.getMinutes() / 60;
-    const minute = date.getMinutes() + date.getSeconds() / 60;
-    const second = date.getSeconds();
-    this.drawHand(hour / 12 * Math.PI * 2 - Math.PI / 2, 54, 6.4, '#352820');
-    this.drawHand(minute / 60 * Math.PI * 2 - Math.PI / 2, 78, 4.2, '#352820');
-    this.drawHand(second / 60 * Math.PI * 2 - Math.PI / 2, 84, 1.8, '#a04e38');
-
-    context.fillStyle = '#34271f';
-    context.beginPath();
-    context.arc(center, center, 6.2, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = '#c67b52';
-    context.beginPath();
-    context.arc(center, center, 2.4, 0, Math.PI * 2);
-    context.fill();
+    context.shadowBlur = 0;
+    context.fillStyle = 'rgba(255, 207, 145, 0.54)';
+    context.font = '600 20px ui-sans-serif, system-ui, sans-serif';
+    context.letterSpacing = '3px';
+    context.fillText('LOCAL', width * 0.5, height - 18);
 
     this.texture.needsUpdate = true;
-  }
-
-  private drawHand(angle: number, length: number, width: number, color: string): void {
-    const context = this.context;
-    const center = this.canvas.width / 2;
-    context.strokeStyle = color;
-    context.lineWidth = width;
-    context.lineCap = 'round';
-    context.beginPath();
-    context.moveTo(center - Math.cos(angle) * 8, center - Math.sin(angle) * 8);
-    context.lineTo(center + Math.cos(angle) * length, center + Math.sin(angle) * length);
-    context.stroke();
   }
 
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {

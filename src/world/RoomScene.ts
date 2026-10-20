@@ -36,7 +36,6 @@ export class RoomScene {
       emissiveIntensity: 0.03
     }));
 
-    // Desk: keep the book surface untouched, but preserve a clear furniture silhouette.
     const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), this.deskMaterial);
     desk.position.set(0, 0.14, -0.48);
     this.root.add(desk);
@@ -61,9 +60,6 @@ export class RoomScene {
     frontRightLeg.position.set(4.05, -2.55, -1.05);
     this.root.add(frontRightLeg);
 
-    // The floor is deliberately larger than the desk footprint. With the right-side wall
-    // removed it can continue naturally into the newly opened part of the room and later
-    // remain visible when the camera is allowed to pull farther back.
     this.floorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0xd0aa7e,
       map: floorTexture,
@@ -88,9 +84,6 @@ export class RoomScene {
       emissiveIntensity: 0.04
     }));
 
-    // One coherent rear wall with an actual opening for the house exit. The previous
-    // right-side wall is intentionally gone: the composition stays open and exposes
-    // floor instead of boxing the reader into a second differently-lit wall plane.
     const wallBottom = -0.72;
     const wallTop = 5.62;
     const wallLeft = -6.35;
@@ -112,7 +105,6 @@ export class RoomScene {
       emissiveIntensity: 0.025
     }));
 
-    // Baseboard stops at the doorway instead of drawing an impossible strip through it.
     const leftBaseboardWidth = doorLeft - (wallLeft + 0.18);
     const leftBaseboard = new THREE.Mesh(
       this.trackGeometry(new THREE.BoxGeometry(leftBaseboardWidth, 0.13, 0.13)),
@@ -130,6 +122,31 @@ export class RoomScene {
     this.root.add(rightBaseboard);
 
     this.createExitDoor(woodTexture, trimMaterial, doorLeft, doorRight, wallBottom, doorTop, wallZ);
+
+    // Foreground wall: intentionally outside the normal reading crop. It only enters the
+    // composition near maximum zoom-out and makes the desk read as sitting inside an
+    // actual room. It reuses the exact same plaster material as the mirror wall, so the
+    // two walls cannot drift into unrelated colors again.
+    const foregroundWall = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(14.5, 1.35, 0.32)),
+      this.wallMaterial
+    );
+    foregroundWall.position.set(0.35, -5.34, 0.18);
+    this.root.add(foregroundWall);
+
+    const foregroundCap = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(14.65, 0.12, 0.42)),
+      trimMaterial
+    );
+    foregroundCap.position.set(0.35, -4.64, 0.2);
+    this.root.add(foregroundCap);
+
+    const foregroundBase = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(14.35, 0.12, 0.16)),
+      trimMaterial
+    );
+    foregroundBase.position.set(0.35, -5.95, 0.02);
+    this.root.add(foregroundBase);
 
     const contactMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0x20140e,
@@ -183,13 +200,7 @@ export class RoomScene {
     for (const material of this.materials) material.dispose();
   }
 
-  private addWallPanel(
-    left: number,
-    right: number,
-    bottom: number,
-    top: number,
-    z: number
-  ): void {
+  private addWallPanel(left: number, right: number, bottom: number, top: number, z: number): void {
     const width = Math.max(0.01, right - left);
     const height = Math.max(0.01, top - bottom);
     const panel = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(width, height)), this.wallMaterial);
@@ -209,7 +220,6 @@ export class RoomScene {
     const openingWidth = doorRight - doorLeft;
     const openingHeight = doorTop - doorBottom;
 
-    // A recessed dark portal makes the opening read as depth rather than a dark decal.
     const hallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x2e2b27,
       roughness: 1,
@@ -225,8 +235,6 @@ export class RoomScene {
     hall.position.set((doorLeft + doorRight) * 0.5, (doorBottom + doorTop) * 0.5, wallZ - 0.09);
     this.root.add(hall);
 
-    // Continue the room floor through the threshold so the doorway belongs to the same
-    // architecture instead of looking pasted over the wall.
     const threshold = new THREE.Mesh(
       this.trackGeometry(new THREE.BoxGeometry(openingWidth + 0.16, 0.26, 0.11)),
       this.edgeMaterial
@@ -274,8 +282,6 @@ export class RoomScene {
       emissiveIntensity: 0.025
     }));
 
-    // Hinge the door at the right jamb and leave it visibly ajar. This keeps the exit
-    // readable while preserving a believable object that could physically close.
     const hinge = new THREE.Group();
     hinge.position.set(doorRight - 0.035, (doorBottom + doorTop) * 0.5, wallZ + 0.07);
     hinge.rotation.y = 0.72;

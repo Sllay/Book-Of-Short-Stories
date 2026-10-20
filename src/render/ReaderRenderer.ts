@@ -199,6 +199,11 @@ export class ReaderRenderer {
     const portraitLike = this.camera.aspect < 1.2;
     const easedZoom = THREE.MathUtils.smoothstep(this.zoom, 0, 1);
 
+    // Keep the established reading framing for normal/close zoom. Only the bottom part
+    // of the slider adds an extra pull-back range, so existing users do not suddenly
+    // see the book smaller at their saved/default zoom value.
+    const roomReveal = 1 - THREE.MathUtils.smoothstep(this.zoom, 0, 0.36);
+
     const farZ = portraitLike ? 8.75 : 7.55;
     const nearZ = portraitLike ? 6.5 : 5.23;
     const farY = portraitLike ? -0.72 : -1.12;
@@ -206,13 +211,19 @@ export class ReaderRenderer {
     const farX = portraitLike ? -0.12 : -0.38;
     const nearX = 0;
 
-    const z = THREE.MathUtils.lerp(farZ, nearZ, easedZoom);
-    const cameraY = THREE.MathUtils.lerp(farY, nearY, easedZoom);
-    const cameraX = THREE.MathUtils.lerp(farX, nearX, easedZoom);
-    const lookX = THREE.MathUtils.lerp(portraitLike ? 0.06 : 0.24, 0, easedZoom);
-    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.22 : 0.42, 0, easedZoom);
+    const baseZ = THREE.MathUtils.lerp(farZ, nearZ, easedZoom);
+    const baseY = THREE.MathUtils.lerp(farY, nearY, easedZoom);
+    const baseX = THREE.MathUtils.lerp(farX, nearX, easedZoom);
 
-    this.camera.fov = THREE.MathUtils.lerp(portraitLike ? 33 : 34, portraitLike ? 30.5 : 29.5, easedZoom);
+    const z = baseZ + roomReveal * (portraitLike ? 2.55 : 3.2);
+    const cameraY = baseY - roomReveal * (portraitLike ? 0.34 : 0.68);
+    const cameraX = baseX - roomReveal * (portraitLike ? 0.06 : 0.18);
+
+    const lookX = THREE.MathUtils.lerp(portraitLike ? 0.06 : 0.24, 0, easedZoom) + roomReveal * 0.08;
+    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.22 : 0.42, 0, easedZoom) + roomReveal * 0.18;
+
+    const baseFov = THREE.MathUtils.lerp(portraitLike ? 33 : 34, portraitLike ? 30.5 : 29.5, easedZoom);
+    this.camera.fov = baseFov + roomReveal * (portraitLike ? 3.1 : 4.4);
     this.camera.position.set(cameraX, cameraY, z);
     this.camera.lookAt(lookX, lookY, -0.04);
     this.camera.updateProjectionMatrix();
