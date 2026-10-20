@@ -36,8 +36,7 @@ export class RoomScene {
       emissiveIntensity: 0.03
     }));
 
-    // Desk: keep the reading surface where the book already expects it, but give the
-    // front and side enough thickness to read as furniture instead of a flat texture.
+    // Desk: keep the book surface untouched, but preserve a clear furniture silhouette.
     const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), this.deskMaterial);
     desk.position.set(0, 0.14, -0.48);
     this.root.add(desk);
@@ -62,10 +61,11 @@ export class RoomScene {
     frontRightLeg.position.set(4.05, -2.55, -1.05);
     this.root.add(frontRightLeg);
 
-    // Floor is intentionally lighter and warmer than the plaster wall. The tilt makes
-    // the upper edge recede from the camera, giving the lower room an actual floor read.
+    // The floor is deliberately larger than the desk footprint. With the right-side wall
+    // removed it can continue naturally into the newly opened part of the room and later
+    // remain visible when the camera is allowed to pull farther back.
     this.floorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xc79f73,
+      color: 0xd0aa7e,
       map: floorTexture,
       roughness: 0.93,
       metalness: 0,
@@ -73,14 +73,11 @@ export class RoomScene {
       emissive: 0x5a4028,
       emissiveIntensity: 0.035
     }));
-    const floor = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(12.4, 6.2)), this.floorMaterial);
-    floor.position.set(0, -2.55, -1.46);
-    floor.rotation.x = -0.38;
+    const floor = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(15.6, 9.2)), this.floorMaterial);
+    floor.position.set(0.5, -3.36, -1.34);
+    floor.rotation.x = -0.34;
     this.root.add(floor);
 
-    // The wall now faces the camera as one continuous plaster plane. Previously the
-    // geometry mostly extended through depth, which made the floor/background read as
-    // the wall and created inconsistent patches around the mirror.
     this.wallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x806a61,
       map: wallTexture,
@@ -91,14 +88,21 @@ export class RoomScene {
       emissiveIntensity: 0.04
     }));
 
-    const backWall = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(12.4, 6.4)), this.wallMaterial);
-    backWall.position.set(0, 2.42, -1.68);
-    this.root.add(backWall);
+    // One coherent rear wall with an actual opening for the house exit. The previous
+    // right-side wall is intentionally gone: the composition stays open and exposes
+    // floor instead of boxing the reader into a second differently-lit wall plane.
+    const wallBottom = -0.72;
+    const wallTop = 5.62;
+    const wallLeft = -6.35;
+    const wallRight = 6.35;
+    const doorLeft = 3.78;
+    const doorRight = 5.38;
+    const doorTop = 2.72;
+    const wallZ = -1.68;
 
-    const sideWall = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(3.6, 6.4)), this.wallMaterial);
-    sideWall.position.set(5.45, 1.55, -0.15);
-    sideWall.rotation.y = -Math.PI / 2 + 0.04;
-    this.root.add(sideWall);
+    this.addWallPanel(wallLeft, doorLeft, wallBottom, wallTop, wallZ);
+    this.addWallPanel(doorRight, wallRight, wallBottom, wallTop, wallZ);
+    this.addWallPanel(doorLeft, doorRight, doorTop, wallTop, wallZ);
 
     const trimMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
       color: 0x503a30,
@@ -107,13 +111,25 @@ export class RoomScene {
       emissive: 0x241913,
       emissiveIntensity: 0.025
     }));
-    const baseboard = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(11.65, 0.13, 0.13)), trimMaterial);
-    baseboard.position.set(0, -0.58, -1.5);
-    this.root.add(baseboard);
 
-    const cornerTrim = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.12, 6.0, 0.12)), trimMaterial);
-    cornerTrim.position.set(5.12, 2.08, -1.24);
-    this.root.add(cornerTrim);
+    // Baseboard stops at the doorway instead of drawing an impossible strip through it.
+    const leftBaseboardWidth = doorLeft - (wallLeft + 0.18);
+    const leftBaseboard = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(leftBaseboardWidth, 0.13, 0.13)),
+      trimMaterial
+    );
+    leftBaseboard.position.set(wallLeft + 0.18 + leftBaseboardWidth * 0.5, -0.58, -1.5);
+    this.root.add(leftBaseboard);
+
+    const rightBaseboardWidth = Math.max(0.3, wallRight - doorRight - 0.18);
+    const rightBaseboard = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(rightBaseboardWidth, 0.13, 0.13)),
+      trimMaterial
+    );
+    rightBaseboard.position.set(doorRight + rightBaseboardWidth * 0.5, -0.58, -1.5);
+    this.root.add(rightBaseboard);
+
+    this.createExitDoor(woodTexture, trimMaterial, doorLeft, doorRight, wallBottom, doorTop, wallZ);
 
     const contactMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       color: 0x20140e,
@@ -165,6 +181,139 @@ export class RoomScene {
     for (const texture of this.textures) texture.dispose();
     for (const geometry of this.geometries) geometry.dispose();
     for (const material of this.materials) material.dispose();
+  }
+
+  private addWallPanel(
+    left: number,
+    right: number,
+    bottom: number,
+    top: number,
+    z: number
+  ): void {
+    const width = Math.max(0.01, right - left);
+    const height = Math.max(0.01, top - bottom);
+    const panel = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(width, height)), this.wallMaterial);
+    panel.position.set((left + right) * 0.5, (bottom + top) * 0.5, z);
+    this.root.add(panel);
+  }
+
+  private createExitDoor(
+    woodTexture: THREE.Texture,
+    trimMaterial: THREE.Material,
+    doorLeft: number,
+    doorRight: number,
+    doorBottom: number,
+    doorTop: number,
+    wallZ: number
+  ): void {
+    const openingWidth = doorRight - doorLeft;
+    const openingHeight = doorTop - doorBottom;
+
+    // A recessed dark portal makes the opening read as depth rather than a dark decal.
+    const hallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x2e2b27,
+      roughness: 1,
+      metalness: 0,
+      emissive: 0x171b20,
+      emissiveIntensity: 0.08,
+      side: THREE.DoubleSide
+    }));
+    const hall = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(openingWidth - 0.08, openingHeight - 0.05)),
+      hallMaterial
+    );
+    hall.position.set((doorLeft + doorRight) * 0.5, (doorBottom + doorTop) * 0.5, wallZ - 0.09);
+    this.root.add(hall);
+
+    // Continue the room floor through the threshold so the doorway belongs to the same
+    // architecture instead of looking pasted over the wall.
+    const threshold = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(openingWidth + 0.16, 0.26, 0.11)),
+      this.edgeMaterial
+    );
+    threshold.position.set((doorLeft + doorRight) * 0.5, doorBottom + 0.04, wallZ + 0.12);
+    this.root.add(threshold);
+
+    const outsideFloor = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(openingWidth + 0.5, 2.2)),
+      this.floorMaterial
+    );
+    outsideFloor.position.set((doorLeft + doorRight) * 0.5, doorBottom - 0.32, wallZ - 0.62);
+    outsideFloor.rotation.x = -Math.PI / 2;
+    outsideFloor.rotation.z = Math.PI;
+    this.root.add(outsideFloor);
+
+    const frameThickness = 0.12;
+    const leftJamb = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(frameThickness, openingHeight + 0.18, 0.18)),
+      trimMaterial
+    );
+    leftJamb.position.set(doorLeft - frameThickness * 0.25, (doorBottom + doorTop) * 0.5, wallZ + 0.03);
+    this.root.add(leftJamb);
+
+    const rightJamb = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(frameThickness, openingHeight + 0.18, 0.18)),
+      trimMaterial
+    );
+    rightJamb.position.set(doorRight + frameThickness * 0.25, (doorBottom + doorTop) * 0.5, wallZ + 0.03);
+    this.root.add(rightJamb);
+
+    const lintel = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(openingWidth + 0.22, 0.13, 0.18)),
+      trimMaterial
+    );
+    lintel.position.set((doorLeft + doorRight) * 0.5, doorTop + 0.05, wallZ + 0.03);
+    this.root.add(lintel);
+
+    const doorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x6a432c,
+      map: woodTexture,
+      roughness: 0.82,
+      metalness: 0,
+      emissive: 0x27160f,
+      emissiveIntensity: 0.025
+    }));
+
+    // Hinge the door at the right jamb and leave it visibly ajar. This keeps the exit
+    // readable while preserving a believable object that could physically close.
+    const hinge = new THREE.Group();
+    hinge.position.set(doorRight - 0.035, (doorBottom + doorTop) * 0.5, wallZ + 0.07);
+    hinge.rotation.y = 0.72;
+    this.root.add(hinge);
+
+    const slabWidth = openingWidth - 0.13;
+    const slabHeight = openingHeight - 0.16;
+    const slab = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(slabWidth, slabHeight, 0.09)),
+      doorMaterial
+    );
+    slab.position.x = -slabWidth * 0.5;
+    hinge.add(slab);
+
+    const panelMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x4e2f21,
+      roughness: 0.88,
+      metalness: 0,
+      emissive: 0x1c100b,
+      emissiveIntensity: 0.02
+    }));
+    for (const y of [-0.74, 0.56]) {
+      const inset = new THREE.Mesh(
+        this.trackGeometry(new THREE.BoxGeometry(slabWidth * 0.62, slabHeight * 0.28, 0.025)),
+        panelMaterial
+      );
+      inset.position.set(-slabWidth * 0.5, y, 0.055);
+      hinge.add(inset);
+    }
+
+    const knobMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0xc1a16b,
+      roughness: 0.38,
+      metalness: 0.62
+    }));
+    const knob = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.055, 14, 10)), knobMaterial);
+    knob.position.set(-slabWidth * 0.9, 0, 0.095);
+    hinge.add(knob);
   }
 
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
