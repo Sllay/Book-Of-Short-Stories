@@ -11,6 +11,9 @@ const BOOKMARK_X = 2.02;
 const BOOKMARK_Y = BOOK_PAGE_HEIGHT * 0.5 + 0.18;
 const BOOKMARK_Z = 0.13;
 const BOOKMARK_TRANSITION_MS = 300;
+const CLOSE_DURATION_MS = 980;
+const OPEN_DURATION_MS = 980;
+const FINISHED_FLIP_DURATION_MS = 1320;
 
 export type BookCloseReason = 'manual' | 'finished' | 'import';
 
@@ -223,8 +226,7 @@ export class BookPresentationController {
       this.book.root.visible = false;
       this.book.resetPhysicalFold();
       this.closedGroup.visible = true;
-      this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
-      this.closedGroup.rotation.y = 0;
+      this.resetClosedPose(CLOSED_HOME_X, 0);
       this.setClosedOpacity(1);
       return;
     }
@@ -236,8 +238,7 @@ export class BookPresentationController {
     this.book.resetPhysicalFold();
     this.book.root.visible = true;
     this.closedGroup.visible = true;
-    this.closedGroup.position.set(this.closingSide === 'left' ? CLOSED_HOME_X : -CLOSED_HOME_X, -0.04, 0.02);
-    this.closedGroup.rotation.y = this.closingSide === 'right' ? Math.PI : 0;
+    this.resetClosedPose(this.closingSide === 'left' ? CLOSED_HOME_X : -CLOSED_HOME_X, this.closingSide === 'right' ? Math.PI : 0);
     this.setClosedOpacity(0);
   }
 
@@ -246,8 +247,7 @@ export class BookPresentationController {
     this.phase = 'opening';
     this.animationElapsedMs = 0;
     this.closedGroup.visible = true;
-    this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
-    this.closedGroup.rotation.y = 0;
+    this.resetClosedPose(CLOSED_HOME_X, 0);
     this.book.root.visible = true;
     this.book.setPhysicalFold('left', 1);
     this.bookmarkTab.visible = false;
@@ -319,11 +319,14 @@ export class BookPresentationController {
 
     if (this.phase === 'closing') {
       this.animationElapsedMs += delta;
-      const duration = 760;
-      const t = THREE.MathUtils.clamp(this.animationElapsedMs / duration, 0, 1);
-      const eased = easeInOutCubic(t);
-      this.book.setPhysicalFold(this.closingSide, eased);
-      const closedReveal = THREE.MathUtils.smoothstep((t - 0.78) / 0.22, 0, 1);
+      const t = THREE.MathUtils.clamp(this.animationElapsedMs / CLOSE_DURATION_MS, 0, 1);
+      const foldWindow = smoothWindow(t, 0, 0.93);
+      const foldProgress = easeInOutQuint(foldWindow);
+      this.book.setPhysicalFold(this.closingSide, foldProgress);
+
+      // Swap representations only after the physical halves are almost fully together.
+      // This avoids the old ghosted closed book floating over a still-open spread.
+      const closedReveal = smoothWindow(t, 0.9, 1);
       this.setClosedOpacity(closedReveal);
 
       if (t >= 1) {
@@ -333,12 +336,10 @@ export class BookPresentationController {
         if (this.closeReason === 'finished') {
           this.phase = 'finished-flip';
           this.animationElapsedMs = 0;
-          this.closedGroup.position.set(-CLOSED_HOME_X, -0.04, 0.02);
-          this.closedGroup.rotation.y = Math.PI;
+          this.resetClosedPose(-CLOSED_HOME_X, Math.PI);
         } else {
           this.phase = 'closed';
-          this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
-          this.closedGroup.rotation.y = 0;
+          this.resetClosedPose(CLOSED_HOME_X, 0);
         }
       }
       return true;
@@ -346,14 +347,30 @@ export class BookPresentationController {
 
     if (this.phase === 'finished-flip') {
       this.animationElapsedMs += delta;
-      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 1080, 0, 1);
-      const eased = easeInOutCubic(t);
-      this.closedGroup.rotation.y = THREE.MathUtils.lerp(Math.PI, Math.PI * 2, eased);
-      this.closedGroup.position.x = THREE.MathUtils.lerp(-CLOSED_HOME_X, CLOSED_HOME_X, eased);
-      this.closedGroup.position.z = 0.02 + Math.sin(Math.PI * t) * 0.13;
+      const t = THREE.MathUtils.clamp(this.animationElapsedMs / FINISHED_FLIP_DURATION_MS, 0, 1);
+
+      // Hold the back cover for a beat, then roll the whole closed book over with a
+      // soft lift. The lateral move is eased rather than linear so it reads as weight,
+      // not a UI card translating across the table.
+      const flipWindow = smoothWindow(t, 0.12, 0.86);
+      const flip = easeInOutQuint(flipWindow);
+      const lift = Math.sin(Math.PI * flip);
+      this.closedGroup.rotation.y = Math.PI + Math.PI * flip;
+      this.closedGroup.rotation.x = -0.08 + lift * 0.052;
+      this.closedGroup.rotation.z = -lift * 0.022;
+      this.closedGroup.position.x = THREE.MathUtils.lerp(-CLOSED_HOME_X, CLOSED_HOME_X, flip);
+      this.closedGroup.position.y = -0.04 + lift * 0.04;
+      this.closedGroup.position.z = 0.02 + lift * 0.24;
+
+      const settle = smoothWindow(t, 0.86, 1);
+      if (settle > 0) {
+        const damped = Math.sin(settle * Math.PI * 2) * (1 - settle);
+        this.closedGroup.position.z += damped * 0.018;
+        this.closedGroup.rotation.x += damped * 0.012;
+      }
+
       if (t >= 1) {
-        this.closedGroup.rotation.y = 0;
-        this.closedGroup.position.set(CLOSED_HOME_X, -0.04, 0.02);
+        this.resetClosedPose(CLOSED_HOME_X, 0);
         this.phase = 'closed';
       }
       return true;
@@ -361,10 +378,15 @@ export class BookPresentationController {
 
     if (this.phase === 'opening') {
       this.animationElapsedMs += delta;
-      const t = THREE.MathUtils.clamp(this.animationElapsedMs / 720, 0, 1);
-      const eased = easeInOutCubic(t);
-      this.book.setPhysicalFold('left', 1 - eased);
-      this.setClosedOpacity(1 - THREE.MathUtils.smoothstep((t - 0.08) / 0.38, 0, 1));
+      const t = THREE.MathUtils.clamp(this.animationElapsedMs / OPEN_DURATION_MS, 0, 1);
+
+      // First transfer from the closed mesh to the physically folded book, then let the
+      // hardcover lead the opening while the paper block follows through its own hinge.
+      const transfer = smoothWindow(t, 0, 0.18);
+      this.setClosedOpacity(1 - transfer);
+      const unfoldWindow = smoothWindow(t, 0.08, 1);
+      const unfold = easeInOutQuint(unfoldWindow);
+      this.book.setPhysicalFold('left', 1 - unfold);
 
       if (t >= 1) {
         this.phase = 'open';
@@ -497,6 +519,11 @@ export class BookPresentationController {
     this.closedSpineMaterial.opacity = opacity;
   }
 
+  private resetClosedPose(x: number, rotationY: number): void {
+    this.closedGroup.position.set(x, -0.04, 0.02);
+    this.closedGroup.rotation.set(-0.08, rotationY, 0);
+  }
+
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
     this.geometries.push(geometry);
     return geometry;
@@ -508,8 +535,14 @@ export class BookPresentationController {
   }
 }
 
-function easeInOutCubic(t: number): number {
+function smoothWindow(value: number, start: number, end: number): number {
+  if (end <= start) return value >= end ? 1 : 0;
+  const t = THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function easeInOutQuint(t: number): number {
   return t < 0.5
-    ? 4 * t * t * t
-    : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    ? 16 * t * t * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 5) / 2;
 }
