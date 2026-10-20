@@ -39,6 +39,10 @@ export class BookRenderer {
   private readonly ownedTextures: THREE.Texture[] = [];
   private readonly leftStaticGroup = new THREE.Group();
   private readonly rightStaticGroup = new THREE.Group();
+  private readonly leftCoverFoldGroup = new THREE.Group();
+  private readonly rightCoverFoldGroup = new THREE.Group();
+  private readonly leftContentFoldGroup = new THREE.Group();
+  private readonly rightContentFoldGroup = new THREE.Group();
   private readonly coverMaterial: THREE.MeshStandardMaterial;
   private readonly leftPageMaterial: THREE.MeshStandardMaterial;
   private readonly rightPageMaterial: THREE.MeshStandardMaterial;
@@ -100,10 +104,10 @@ export class BookRenderer {
     const halfCoverGeometry = this.trackGeometry(new THREE.BoxGeometry(COVER_WIDTH * 0.5, COVER_HEIGHT, 0.12));
     const leftCover = new THREE.Mesh(halfCoverGeometry, this.coverMaterial);
     leftCover.position.set(-COVER_WIDTH * 0.25, 0, -0.18);
-    this.leftStaticGroup.add(leftCover);
+    this.leftCoverFoldGroup.add(leftCover);
     const rightCover = new THREE.Mesh(halfCoverGeometry, this.coverMaterial);
     rightCover.position.set(COVER_WIDTH * 0.25, 0, -0.18);
-    this.rightStaticGroup.add(rightCover);
+    this.rightCoverFoldGroup.add(rightCover);
 
     const pageStackTexture = this.trackTexture(createPageStackTexture());
     this.pageBlockMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
@@ -115,23 +119,25 @@ export class BookRenderer {
     const halfBlockGeometry = this.trackGeometry(new THREE.BoxGeometry(PAGE_BLOCK_WIDTH * 0.5, 3.02, 0.16));
     const leftBlock = new THREE.Mesh(halfBlockGeometry, this.pageBlockMaterial);
     leftBlock.position.set(-PAGE_BLOCK_WIDTH * 0.25, 0, -0.075);
-    this.leftStaticGroup.add(leftBlock);
+    this.leftContentFoldGroup.add(leftBlock);
     const rightBlock = new THREE.Mesh(halfBlockGeometry, this.pageBlockMaterial);
     rightBlock.position.set(PAGE_BLOCK_WIDTH * 0.25, 0, -0.075);
-    this.rightStaticGroup.add(rightBlock);
+    this.rightContentFoldGroup.add(rightBlock);
 
     this.leftPageMaterial = this.trackMaterial(this.createPageMaterial());
     const leftGeometry = this.trackGeometry(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT));
     const leftPage = new THREE.Mesh(leftGeometry, this.leftPageMaterial);
     leftPage.position.set(-PAGE_WIDTH / 2, 0, 0.025);
-    this.leftStaticGroup.add(leftPage);
+    this.leftContentFoldGroup.add(leftPage);
 
     this.rightPageMaterial = this.trackMaterial(this.createPageMaterial());
     const rightGeometry = this.trackGeometry(new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT));
     const rightPage = new THREE.Mesh(rightGeometry, this.rightPageMaterial);
     rightPage.position.set(PAGE_WIDTH / 2, 0, 0.027);
-    this.rightStaticGroup.add(rightPage);
+    this.rightContentFoldGroup.add(rightPage);
 
+    this.leftStaticGroup.add(this.leftCoverFoldGroup, this.leftContentFoldGroup);
+    this.rightStaticGroup.add(this.rightCoverFoldGroup, this.rightContentFoldGroup);
     this.root.add(this.leftStaticGroup, this.rightStaticGroup);
 
     this.turningSheet = new PageCurlSheet(PAGE_WIDTH, PAGE_HEIGHT, this.fallbackTexture, this.fallbackTexture);
@@ -187,20 +193,46 @@ export class BookRenderer {
 
   public setPhysicalFold(side: PhysicalFoldSide, progress: number): void {
     const t = THREE.MathUtils.clamp(progress, 0, 1);
-    const lift = Math.sin(Math.PI * t) * (this.reducedMotion ? 0.018 : 0.085);
     this.turningSheet.mesh.visible = false;
 
-    this.leftStaticGroup.rotation.y = side === 'left' ? -Math.PI * t : 0;
-    this.leftStaticGroup.position.z = side === 'left' ? lift : 0;
-    this.rightStaticGroup.rotation.y = side === 'right' ? Math.PI * t : 0;
-    this.rightStaticGroup.position.z = side === 'right' ? lift : 0;
+    // The old close animation rotated the whole half-book as one rigid slab. Split the
+    // hardcover and paper block into independent spine hinges instead: the cover leads,
+    // while the paper block follows a fraction later. Both return to the exact same
+    // endpoint, so the closed state still swaps cleanly into the closed-book mesh.
+    const coverProgress = smoothFoldWindow(t, 0, 0.93);
+    const contentProgress = smoothFoldWindow(t, 0.045, 1);
+
+    this.resetFoldLayer(this.leftCoverFoldGroup);
+    this.resetFoldLayer(this.leftContentFoldGroup);
+    this.resetFoldLayer(this.rightCoverFoldGroup);
+    this.resetFoldLayer(this.rightContentFoldGroup);
+
+    if (side === 'left') {
+      this.applyFoldLayer(this.leftCoverFoldGroup, -1, coverProgress, 1.08, 0.62);
+      this.applyFoldLayer(this.leftContentFoldGroup, -1, contentProgress, 0.82, 1);
+    } else {
+      this.applyFoldLayer(this.rightCoverFoldGroup, 1, coverProgress, 1.08, 0.62);
+      this.applyFoldLayer(this.rightContentFoldGroup, 1, contentProgress, 0.82, 1);
+    }
+
+    const middle = Math.sin(Math.PI * t);
+    const sideSign = side === 'left' ? 1 : -1;
+    const motionScale = this.reducedMotion ? 0.28 : 1;
+    this.root.rotation.x = -0.08 + middle * 0.012 * motionScale;
+    this.root.rotation.z = sideSign * middle * 0.009 * motionScale;
+    this.root.position.y = -0.04 - middle * 0.016 * motionScale;
+    this.root.position.z = middle * 0.018 * motionScale;
   }
 
   public resetPhysicalFold(): void {
-    this.leftStaticGroup.rotation.y = 0;
-    this.leftStaticGroup.position.z = 0;
-    this.rightStaticGroup.rotation.y = 0;
-    this.rightStaticGroup.position.z = 0;
+    this.resetFoldLayer(this.leftCoverFoldGroup);
+    this.resetFoldLayer(this.leftContentFoldGroup);
+    this.resetFoldLayer(this.rightCoverFoldGroup);
+    this.resetFoldLayer(this.rightContentFoldGroup);
+    this.root.rotation.x = -0.08;
+    this.root.rotation.z = 0;
+    this.root.position.y = -0.04;
+    this.root.position.z = 0;
   }
 
   public setPageLighting(
@@ -587,6 +619,32 @@ export class BookRenderer {
     return mesh;
   }
 
+  private applyFoldLayer(
+    group: THREE.Group,
+    directionSign: -1 | 1,
+    progress: number,
+    liftScale: number,
+    sagScale: number
+  ): void {
+    const p = THREE.MathUtils.clamp(progress, 0, 1);
+    const middle = Math.sin(Math.PI * p);
+    const motionScale = this.reducedMotion ? 0.26 : 1;
+
+    group.rotation.y = directionSign * Math.PI * p;
+    group.rotation.x = directionSign * middle * 0.024 * motionScale;
+    group.rotation.z = directionSign * middle * 0.008 * motionScale;
+    group.position.z = middle * 0.105 * liftScale * motionScale;
+    group.position.y = -middle * 0.026 * sagScale * motionScale;
+    group.scale.x = 1 - middle * 0.012 * motionScale;
+    group.scale.y = 1 - middle * 0.004 * motionScale;
+  }
+
+  private resetFoldLayer(group: THREE.Group): void {
+    group.position.set(0, 0, 0);
+    group.rotation.set(0, 0, 0);
+    group.scale.set(1, 1, 1);
+  }
+
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
     this.staticGeometries.push(geometry);
     return geometry;
@@ -601,4 +659,10 @@ export class BookRenderer {
     this.ownedTextures.push(texture);
     return texture;
   }
+}
+
+function smoothFoldWindow(value: number, start: number, end: number): number {
+  if (end <= start) return value >= end ? 1 : 0;
+  const t = THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
+  return t * t * (3 - 2 * t);
 }
