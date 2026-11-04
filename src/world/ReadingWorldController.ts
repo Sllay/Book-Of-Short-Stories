@@ -4,7 +4,7 @@ import { BirdFlockOverlay } from './BirdFlockOverlay';
 import { CandleRig } from './CandleRig';
 import { ClockRig } from './ClockRig';
 import { MirrorAtmosphere, type MirrorCelestialState } from './MirrorAtmosphere';
-import { RoomScene } from './RoomScene';
+import { CABIN_LAYOUT, RoomScene } from './RoomScene';
 import { WeatherController, type WeatherSnapshot } from './WeatherController';
 
 interface WorldPalette {
@@ -70,6 +70,9 @@ export class ReadingWorldController {
     private readonly keyLight: THREE.DirectionalLight
   ) {
     this.root.add(this.room.root, this.clock.root);
+    // Face the time display into the room: its planar dial now lies on the rear wall.
+    this.clock.root.position.set(-1.15, CABIN_LAYOUT.halfDepth - 0.23, 1.28);
+    this.clock.root.rotation.set(Math.PI / 2, 0, 0);
 
     this.mirrorMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
       map: this.mirrorAtmosphere.texture,
@@ -87,7 +90,7 @@ export class ReadingWorldController {
       side: THREE.DoubleSide
     }));
 
-    this.root.add(this.createMirror());
+    this.root.add(this.createWindow());
     this.root.add(this.candle.root, this.candle.light);
     this.refreshClock(true);
   }
@@ -164,47 +167,62 @@ export class ReadingWorldController {
     for (const material of this.materials) material.dispose();
   }
 
-  private createMirror(): THREE.Group {
-    const mirror = new THREE.Group();
-    mirror.position.set(2.62, 2.24, 0.48);
-    mirror.rotation.x = Math.PI / 2 - 0.11;
-    mirror.rotation.z = -0.035;
+  /**
+   * Physical cabin window: 2 triangles for the simulated sky and a handful
+   * of low-poly wooden beams for the real 3D sash. No volumetric sky mesh.
+   * The rear wall has a matching open hole (see RoomScene).
+   */
+  private createWindow(): THREE.Group {
+    const layout = CABIN_LAYOUT.window;
+    const windowRoot = new THREE.Group();
+    windowRoot.position.set(layout.x, CABIN_LAYOUT.halfDepth - 0.16, layout.z);
+    windowRoot.rotation.x = Math.PI / 2;
 
-    const panel = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.76, 52)), this.mirrorMaterial);
-    panel.position.z = 0.035;
-    mirror.add(panel);
+    const sky = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(layout.width - 0.08, layout.height - 0.08)),
+      this.mirrorMaterial
+    );
+    sky.position.z = 0.045;
+    windowRoot.add(sky);
 
-    const birdOverlay = new THREE.Mesh(this.trackGeometry(new THREE.CircleGeometry(0.758, 52)), this.birdOverlayMaterial);
-    birdOverlay.position.z = 0.039;
-    mirror.add(birdOverlay);
+    const birds = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(layout.width - 0.08, layout.height - 0.08)),
+      this.birdOverlayMaterial
+    );
+    birds.position.z = 0.055;
+    windowRoot.add(birds);
 
-    const frameMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x382920,
-      roughness: 0.58,
-      metalness: 0.1
+    const oak = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x503527, roughness: 0.86, metalness: 0,
+      emissive: 0x211810, emissiveIntensity: 0.045
     }));
-    const frame = new THREE.Mesh(this.trackGeometry(new THREE.RingGeometry(0.76, 0.88, 52)), frameMaterial);
-    frame.position.z = 0.018;
-    mirror.add(frame);
+    const trim = (w: number, h: number, x: number, y: number, z = 0.12): void => {
+      const bar = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(w, h, 0.15)), oak);
+      bar.position.set(x, y, z);
+      windowRoot.add(bar);
+    };
+    const halfW = layout.width / 2;
+    const halfH = layout.height / 2;
+    trim(layout.width + 0.22, 0.15, 0, halfH + 0.05);
+    trim(layout.width + 0.22, 0.18, 0, -halfH - 0.06);
+    trim(0.15, layout.height + 0.20, -halfW - 0.055, 0);
+    trim(0.15, layout.height + 0.20, halfW + 0.055, 0);
 
-    const back = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.88, 0.88, 0.055, 52)), frameMaterial);
-    back.rotation.x = Math.PI / 2;
-    back.position.z = -0.01;
-    mirror.add(back);
+    // Physical crossbars sit in front of the sky texture, not painted into it.
+    trim(0.065, layout.height - 0.11, 0, 0, 0.145);
+    trim(layout.width - 0.11, 0.065, 0, 0, 0.145);
 
-    const standMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x2d211b,
-      roughness: 0.7,
-      metalness: 0.07
+    const glassMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      color: 0xffe9cc, transparent: true, opacity: 0.032,
+      depthWrite: false, toneMapped: false, side: THREE.DoubleSide
     }));
-    const stem = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.11, 0.34, 0.075)), standMaterial);
-    stem.position.set(0, -0.89, -0.02);
-    mirror.add(stem);
-
-    const foot = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.88, 0.14, 0.12)), standMaterial);
-    foot.position.set(0, -1.06, 0.055);
-    mirror.add(foot);
-    return mirror;
+    const glass = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(layout.width - 0.13, layout.height - 0.13)),
+      glassMaterial
+    );
+    glass.position.z = 0.065;
+    windowRoot.add(glass);
+    return windowRoot;
   }
 
   private applyLighting(date: Date): void {
