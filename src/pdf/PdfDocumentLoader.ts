@@ -2,6 +2,8 @@ import './PdfSafariCompat';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
+// Bundled same-origin worker: no CDN, remote fonts or API required to open PDFs.
+// Keep its emitted .mjs in the service worker precache (vite.config.ts).
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export interface LoadedPdfPublication {
@@ -38,7 +40,9 @@ export async function loadPdfPublication(
   knownBookId?: string
 ): Promise<LoadedPdfPublication> {
   const id = knownBookId ?? await createPdfBookId(data);
-  const loadingTask = getDocument({ data });
+  // Memory-backed input: PDF bytes come directly from the File / OPFS / IndexedDB,
+  // not an HTTP URL. Use system font fallback without remote font downloads.
+  const loadingTask = getDocument({ data, useSystemFonts: true, disableAutoFetch: true });
 
   try {
     const document = await loadingTask.promise;
@@ -64,7 +68,12 @@ export async function loadPdfPublication(
     if (name === 'PasswordException') {
       throw new Error('Este PDF é protegido por senha. PDFs com senha ainda não são suportados.');
     }
-    if (error instanceof Error && error.message) throw error;
+    if (error instanceof Error && error.message) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine && /worker|import|fetch|network/i.test(error.message)) {
+        throw new Error('O componente local do PDF não está em cache neste aparelho. Abra o aplicativo uma vez com internet para instalar a versão offline completa.');
+      }
+      throw error;
+    }
     throw new Error('Não foi possível abrir este PDF.');
   }
 }
