@@ -22,8 +22,9 @@ export class MirrorAtmosphere {
   private readonly context: CanvasRenderingContext2D;
 
   public constructor() {
+    // Match the horizontal physical window. Keep the scene a cheap 2D canvas.
     this.canvas.width = 512;
-    this.canvas.height = 512;
+    this.canvas.height = 336;
     const context = this.canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D indisponível para o reflexo do ambiente.');
     this.context = context;
@@ -55,11 +56,12 @@ export class MirrorAtmosphere {
     context.fillStyle = wallGradient;
     context.fillRect(0, 0, width, height);
 
-    const wx = 82;
-    const wy = 78;
-    const ww = 348;
-    const wh = 302;
-    const frame = 16;
+    // Full texture is sky: window surround and muntins are actual 3D meshes.
+    const wx = 0;
+    const wy = 0;
+    const ww = width;
+    const wh = height;
+    const frame = 0;
 
     context.fillStyle = 'rgba(35,27,22,.92)';
     context.fillRect(wx - frame, wy - frame, ww + frame * 2, wh + frame * 2);

@@ -23,9 +23,8 @@ export class ClockRig {
     this.texture.magFilter = THREE.LinearFilter;
     this.texture.generateMipmaps = false;
 
-    // A compact bedside-style digital clock is much easier to read from the reader
-    // camera than the old foreshortened analog face. Keep it beside the mirror but
-    // almost front-facing so the time stays legible at every supported zoom level.
+    // Physically wall-mounted by ReadingWorldController. The dial is a flat,
+    // self-lit 2D texture on a genuine low-poly 3D rectangular clock body.
     this.root.position.set(1.24, 2.26, 0.43);
     this.root.rotation.x = 0.12;
     this.root.rotation.z = 0.018;

@@ -215,15 +215,16 @@ export class ReaderRenderer {
     const baseY = THREE.MathUtils.lerp(farY, nearY, easedZoom);
     const baseX = THREE.MathUtils.lerp(farX, nearX, easedZoom);
 
-    const z = baseZ + roomReveal * (portraitLike ? 2.55 : 3.2);
-    const cameraY = baseY - roomReveal * (portraitLike ? 0.34 : 0.68);
-    const cameraX = baseX - roomReveal * (portraitLike ? 0.06 : 0.18);
+    const z = baseZ + roomReveal * (portraitLike ? 4.4 : 5.1);
+    // As the viewer pulls back, tilt from reading view into a cutaway room view.
+    const cameraY = baseY - roomReveal * (portraitLike ? 3.2 : 4.7);
+    const cameraX = baseX - roomReveal * (portraitLike ? 1.1 : 1.55);
 
     const lookX = THREE.MathUtils.lerp(portraitLike ? 0.06 : 0.24, 0, easedZoom) + roomReveal * 0.08;
-    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.22 : 0.42, 0, easedZoom) + roomReveal * 0.18;
+    const lookY = THREE.MathUtils.lerp(portraitLike ? 0.22 : 0.42, 0, easedZoom) + roomReveal * 1.18;
 
     const baseFov = THREE.MathUtils.lerp(portraitLike ? 33 : 34, portraitLike ? 30.5 : 29.5, easedZoom);
-    this.camera.fov = baseFov + roomReveal * (portraitLike ? 3.1 : 4.4);
+    this.camera.fov = baseFov + roomReveal * (portraitLike ? 7.5 : 8.2);
     this.camera.position.set(cameraX, cameraY, z);
     this.camera.lookAt(lookX, lookY, -0.04);
     this.camera.updateProjectionMatrix();
