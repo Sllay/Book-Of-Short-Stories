@@ -153,6 +153,7 @@ export class App {
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
     window.addEventListener('orientationchange', this.handleViewportChange);
     window.addEventListener('resize', this.handleViewportChange);
+    window.addEventListener('pagehide', this.handlePageHide);
     window.addEventListener('error', this.handleWindowError);
     window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
     this.reducedMotionQuery.addEventListener('change', this.handleReducedMotionChange);
@@ -189,6 +190,7 @@ export class App {
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('orientationchange', this.handleViewportChange);
     window.removeEventListener('resize', this.handleViewportChange);
+    window.removeEventListener('pagehide', this.handlePageHide);
     window.removeEventListener('error', this.handleWindowError);
     window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
     this.reducedMotionQuery.removeEventListener('change', this.handleReducedMotionChange);
@@ -241,7 +243,8 @@ export class App {
       await this.refreshBookmark();
     } catch (error: unknown) {
       this.persistedBookId = null;
-      await this.storage.clearRecentBook().catch(() => undefined);
+      // A transient PDF worker/storage failure must NOT erase the saved book
+      // selection. The file and progress remain local for a later retry.
       this.controls.showError(error instanceof Error ? error.message : 'Não foi possível restaurar a última sessão.');
       await this.loadSampleBook();
     } finally {
@@ -571,6 +574,16 @@ export class App {
     }
 
     this.scheduler.invalidate();
+  };
+
+  private readonly handlePageHide = (): void => {
+    // iOS can terminate suspended PWAs with no further timers. Persist on
+    // pagehide as well as visibilitychange, without contacting any server.
+    if (this.progressSaveTimer !== null) {
+      window.clearTimeout(this.progressSaveTimer);
+      this.progressSaveTimer = null;
+    }
+    void this.persistCurrentProgress().catch(() => undefined);
   };
 
   private readonly handleVisibilityChange = (): void => {
