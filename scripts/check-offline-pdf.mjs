@@ -39,4 +39,4 @@ if (!serviceWorker.includes('index.html')) {
   throw new Error('Offline PDF check: offline app shell index.html is missing from sw.js.');
 }
 
-console.log('Offline PDF precache verified: ' + workers.map(basename).join(', '));
+console.log('Offline PDF precache verified: ' + workers.map(file => basename(file)).join(', '));
