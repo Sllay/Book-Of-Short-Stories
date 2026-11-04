@@ -1,6 +1,22 @@
 import * as THREE from 'three';
 import { createFloorTexture, createWallTexture, createWoodTexture } from './WorldMaterialTextures';
 
+/**
+ * All dimensions are world units. Z is up, X is left/right and Y is room depth.
+ * The camera looks down from +Z, so a roof and the upper front wall are cut away.
+ * This is a REAL 3D cabin, not a perspective-painted floor or a wall-sized decal.
+ */
+export const CABIN_LAYOUT = {
+  halfWidth: 6.55,
+  halfDepth: 4.7,
+  floorZ: -1.60,
+  wallTopZ: 2.42,
+  wallThickness: 0.18,
+  tableTopZ: -0.20,
+  window: { x: 2.45, y: 4.7, z: 0.87, width: 2.72, height: 1.78 },
+  door: { y: 1.54, width: 1.78, topZ: 1.32 }
+} as const;
+
 const WALL_NEUTRAL = new THREE.Color(0x8d756a);
 
 export class RoomScene {
@@ -15,183 +31,49 @@ export class RoomScene {
   private readonly wallMaterial: THREE.MeshStandardMaterial;
 
   public constructor() {
-    const woodTexture = this.trackTexture(createWoodTexture());
+    const wood = this.trackTexture(createWoodTexture());
     const floorTexture = this.trackTexture(createFloorTexture());
     const wallTexture = this.trackTexture(createWallTexture());
 
     this.deskMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      map: woodTexture,
-      roughness: 0.86,
-      metalness: 0,
-      emissive: 0x392115,
-      emissiveIntensity: 0.025
+      map: wood, color: 0xc8a17a, roughness: 0.83, metalness: 0,
+      emissive: 0x392115, emissiveIntensity: 0.025
     }));
     this.edgeMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x69432e,
-      map: woodTexture,
-      roughness: 0.9,
-      metalness: 0,
-      emissive: 0x2b1a12,
-      emissiveIntensity: 0.03
+      map: wood, color: 0x78523c, roughness: 0.88, metalness: 0,
+      emissive: 0x2b1a12, emissiveIntensity: 0.03
     }));
-
-    const desk = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.2, 5.5, 0.34)), this.deskMaterial);
-    desk.position.set(0, 0.14, -0.48);
-    this.root.add(desk);
-
-    const frontEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(9.28, 0.22, 0.34)), this.edgeMaterial);
-    frontEdge.position.set(0, -2.61, -0.4);
-    this.root.add(frontEdge);
-
-    const apron = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(8.85, 0.34, 0.56)), this.edgeMaterial);
-    apron.position.set(0, -2.78, -0.72);
-    this.root.add(apron);
-
-    const rightEdge = new THREE.Mesh(this.trackGeometry(new THREE.BoxGeometry(0.22, 5.45, 0.34)), this.edgeMaterial);
-    rightEdge.position.set(4.57, 0.13, -0.43);
-    this.root.add(rightEdge);
-
-    const legGeometry = this.trackGeometry(new THREE.BoxGeometry(0.36, 0.42, 1.45));
-    const frontLeftLeg = new THREE.Mesh(legGeometry, this.edgeMaterial);
-    frontLeftLeg.position.set(-4.05, -2.55, -1.05);
-    this.root.add(frontLeftLeg);
-    const frontRightLeg = new THREE.Mesh(legGeometry, this.edgeMaterial);
-    frontRightLeg.position.set(4.05, -2.55, -1.05);
-    this.root.add(frontRightLeg);
-
     this.floorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xd0aa7e,
-      map: floorTexture,
-      roughness: 0.93,
-      metalness: 0,
-      side: THREE.DoubleSide,
-      emissive: 0x5a4028,
-      emissiveIntensity: 0.035
+      map: floorTexture, color: 0xe0bf98, roughness: 0.95, metalness: 0,
+      emissive: 0x5a4028, emissiveIntensity: 0.035
     }));
-    const floor = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(15.6, 9.2)), this.floorMaterial);
-    floor.position.set(0.5, -3.36, -1.34);
-    floor.rotation.x = -0.34;
-    this.root.add(floor);
-
     this.wallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x806a61,
-      map: wallTexture,
-      roughness: 0.985,
-      metalness: 0,
-      side: THREE.DoubleSide,
-      emissive: 0x382c29,
-      emissiveIntensity: 0.04
+      map: wallTexture, color: 0x806a61, roughness: 0.98, metalness: 0,
+      emissive: 0x382c29, emissiveIntensity: 0.045
+    }));
+    const timber = this.trackMaterial(new THREE.MeshStandardMaterial({
+      color: 0x513526, roughness: 0.9, metalness: 0,
+      emissive: 0x21140e, emissiveIntensity: 0.04
     }));
 
-    const wallBottom = -0.72;
-    const wallTop = 5.62;
-    const wallLeft = -6.35;
-    const wallRight = 6.35;
-    const doorLeft = 3.78;
-    const doorRight = 5.38;
-    const doorTop = 2.72;
-    const wallZ = -1.68;
-
-    this.addWallPanel(wallLeft, doorLeft, wallBottom, wallTop, wallZ);
-    this.addWallPanel(doorRight, wallRight, wallBottom, wallTop, wallZ);
-    this.addWallPanel(doorLeft, doorRight, doorTop, wallTop, wallZ);
-
-    const trimMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x503a30,
-      roughness: 0.91,
-      metalness: 0,
-      emissive: 0x241913,
-      emissiveIntensity: 0.025
-    }));
-
-    const leftBaseboardWidth = doorLeft - (wallLeft + 0.18);
-    const leftBaseboard = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(leftBaseboardWidth, 0.13, 0.13)),
-      trimMaterial
-    );
-    leftBaseboard.position.set(wallLeft + 0.18 + leftBaseboardWidth * 0.5, -0.58, -1.5);
-    this.root.add(leftBaseboard);
-
-    const rightBaseboardWidth = Math.max(0.3, wallRight - doorRight - 0.18);
-    const rightBaseboard = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(rightBaseboardWidth, 0.13, 0.13)),
-      trimMaterial
-    );
-    rightBaseboard.position.set(doorRight + rightBaseboardWidth * 0.5, -0.58, -1.5);
-    this.root.add(rightBaseboard);
-
-    this.createExitDoor(woodTexture, trimMaterial, doorLeft, doorRight, wallBottom, doorTop, wallZ);
-
-    // Foreground wall: intentionally outside the normal reading crop. It only enters the
-    // composition near maximum zoom-out and makes the desk read as sitting inside an
-    // actual room. It reuses the exact same plaster material as the mirror wall, so the
-    // two walls cannot drift into unrelated colors again.
-    const foregroundWall = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(14.5, 1.35, 0.32)),
-      this.wallMaterial
-    );
-    foregroundWall.position.set(0.35, -5.34, 0.18);
-    this.root.add(foregroundWall);
-
-    const foregroundCap = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(14.65, 0.12, 0.42)),
-      trimMaterial
-    );
-    foregroundCap.position.set(0.35, -4.64, 0.2);
-    this.root.add(foregroundCap);
-
-    const foregroundBase = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(14.35, 0.12, 0.16)),
-      trimMaterial
-    );
-    foregroundBase.position.set(0.35, -5.95, 0.02);
-    this.root.add(foregroundBase);
-
-    const contactMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
-      color: 0x20140e,
-      transparent: true,
-      opacity: 0.105,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    }));
-    const contact = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(5.4, 2.7)), contactMaterial);
-    contact.position.set(0, 0.03, -0.292);
-    this.root.add(contact);
-
-    const signatureTexture = this.trackTexture(createDeskSignatureTexture());
-    const signatureMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      map: signatureTexture,
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.72,
-      roughness: 0.97,
-      metalness: 0,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    }));
-    const signature = new THREE.Mesh(
-      this.trackGeometry(new THREE.PlaneGeometry(0.8, 0.27)),
-      signatureMaterial
-    );
-    signature.position.set(-2.82, 0.18, -0.287);
-    signature.rotation.z = -0.028;
-    this.root.add(signature);
+    this.createCabin(timber);
+    this.createTable(timber);
+    this.createSignature();
   }
 
   public setWallColor(hex: number): void {
-    const coherent = new THREE.Color(hex).lerp(WALL_NEUTRAL, 0.32);
+    const coherent = new THREE.Color(hex).lerp(WALL_NEUTRAL, 0.42);
     this.wallMaterial.color.copy(coherent);
-    this.wallMaterial.emissive.copy(coherent).multiplyScalar(0.38);
+    this.wallMaterial.emissive.copy(coherent).multiplyScalar(0.34);
   }
 
   public setAmbientReadability(hemisphereIntensity: number): void {
     const normalized = THREE.MathUtils.clamp((hemisphereIntensity - 0.62) / 0.82, 0, 1);
     const night = 1 - normalized;
-    this.wallMaterial.emissiveIntensity = 0.045 + night * 0.13;
-    this.floorMaterial.emissiveIntensity = 0.035 + night * 0.105;
-    this.deskMaterial.emissiveIntensity = 0.022 + night * 0.082;
-    this.edgeMaterial.emissiveIntensity = 0.026 + night * 0.072;
+    this.wallMaterial.emissiveIntensity = 0.045 + night * 0.12;
+    this.floorMaterial.emissiveIntensity = 0.035 + night * 0.10;
+    this.deskMaterial.emissiveIntensity = 0.022 + night * 0.08;
+    this.edgeMaterial.emissiveIntensity = 0.026 + night * 0.07;
   }
 
   public dispose(): void {
@@ -200,126 +82,183 @@ export class RoomScene {
     for (const material of this.materials) material.dispose();
   }
 
-  private addWallPanel(left: number, right: number, bottom: number, top: number, z: number): void {
-    const width = Math.max(0.01, right - left);
-    const height = Math.max(0.01, top - bottom);
-    const panel = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(width, height)), this.wallMaterial);
-    panel.position.set((left + right) * 0.5, (bottom + top) * 0.5, z);
-    this.root.add(panel);
+  private createCabin(timber: THREE.Material): void {
+    const c = CABIN_LAYOUT;
+    const width = c.halfWidth * 2;
+    const depth = c.halfDepth * 2;
+    const height = c.wallTopZ - c.floorZ;
+    const floor = this.box(width + 0.12, depth + 0.12, 0.16, this.floorMaterial);
+    floor.position.z = c.floorZ - 0.08;
+
+    // Four actual, mutually perpendicular walls. The front is a cutaway parapet
+    // so it never obscures text when the camera moves towards the reader.
+    const rearY = c.halfDepth;
+    const rearLeft = -c.halfWidth;
+    const rearRight = c.halfWidth;
+    const winLeft = c.window.x - c.window.width / 2;
+    const winRight = c.window.x + c.window.width / 2;
+    const winBottom = c.window.z - c.window.height / 2;
+    const winTop = c.window.z + c.window.height / 2;
+
+    this.rearPanel(rearLeft, winLeft, c.floorZ, c.wallTopZ);
+    this.rearPanel(winRight, rearRight, c.floorZ, c.wallTopZ);
+    this.rearPanel(winLeft, winRight, c.floorZ, winBottom);
+    this.rearPanel(winLeft, winRight, winTop, c.wallTopZ);
+
+    this.box(0.18, depth, height, this.wallMaterial)
+      .position.set(-c.halfWidth, 0, (c.floorZ + c.wallTopZ) / 2);
+
+    const doorMin = c.door.y - c.door.width / 2;
+    const doorMax = c.door.y + c.door.width / 2;
+    this.sidePanel(-c.halfDepth, doorMin, c.floorZ, c.wallTopZ);
+    this.sidePanel(doorMax, c.halfDepth, c.floorZ, c.wallTopZ);
+    this.sidePanel(doorMin, doorMax, c.door.topZ, c.wallTopZ);
+
+    // A fourth wall is represented by a low real 3D section; upper part is
+    // intentionally removed like an architectural dollhouse cutaway.
+    const frontHeight = 0.83;
+    this.box(width, 0.18, frontHeight, this.wallMaterial)
+      .position.set(0, -c.halfDepth, c.floorZ + frontHeight / 2);
+    this.box(width + 0.14, 0.25, 0.13, timber)
+      .position.set(0, -c.halfDepth, c.floorZ + frontHeight + 0.025);
+
+    // Four corner posts, a continuous rear beam and a real skirting board.
+    const postGeometry = this.trackGeometry(new THREE.BoxGeometry(0.25, 0.25, height));
+    for (const x of [-c.halfWidth, c.halfWidth]) {
+      for (const y of [-c.halfDepth, c.halfDepth]) {
+        const post = new THREE.Mesh(postGeometry, timber);
+        post.position.set(x, y, c.floorZ + height / 2);
+        this.root.add(post);
+      }
+    }
+    this.box(width + 0.18, 0.25, 0.19, timber)
+      .position.set(0, rearY - 0.04, c.wallTopZ - 0.02);
+    this.box(width - 0.18, 0.11, 0.15, timber)
+      .position.set(0, rearY - 0.12, c.floorZ + 0.12);
+    this.box(0.13, depth - 0.15, 0.16, timber)
+      .position.set(-c.halfWidth + 0.12, 0, c.floorZ + 0.12);
+
+    // Window is a genuine rectangular hole; sky texture and 3D sash are
+    // installed separately by ReadingWorldController into this opening.
+    this.box(c.window.width + 0.34, 0.35, 0.12, timber)
+      .position.set(c.window.x, rearY - 0.15, winBottom - 0.075);
+
+    this.createExitDoor(timber, doorMin, doorMax);
   }
 
-  private createExitDoor(
-    woodTexture: THREE.Texture,
-    trimMaterial: THREE.Material,
-    doorLeft: number,
-    doorRight: number,
-    doorBottom: number,
-    doorTop: number,
-    wallZ: number
-  ): void {
-    const openingWidth = doorRight - doorLeft;
-    const openingHeight = doorTop - doorBottom;
+  private rearPanel(left: number, right: number, bottom: number, top: number): void {
+    const c = CABIN_LAYOUT;
+    if (right <= left || top <= bottom) return;
+    this.box(right - left, c.wallThickness, top - bottom, this.wallMaterial)
+      .position.set((left + right) / 2, c.halfDepth, (bottom + top) / 2);
+  }
 
-    const hallMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x2e2b27,
-      roughness: 1,
-      metalness: 0,
-      emissive: 0x171b20,
-      emissiveIntensity: 0.08,
-      side: THREE.DoubleSide
-    }));
-    const hall = new THREE.Mesh(
-      this.trackGeometry(new THREE.PlaneGeometry(openingWidth - 0.08, openingHeight - 0.05)),
-      hallMaterial
-    );
-    hall.position.set((doorLeft + doorRight) * 0.5, (doorBottom + doorTop) * 0.5, wallZ - 0.09);
-    this.root.add(hall);
+  private sidePanel(front: number, back: number, bottom: number, top: number): void {
+    const c = CABIN_LAYOUT;
+    if (back <= front || top <= bottom) return;
+    this.box(c.wallThickness, back - front, top - bottom, this.wallMaterial)
+      .position.set(c.halfWidth, (front + back) / 2, (bottom + top) / 2);
+  }
 
-    const threshold = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(openingWidth + 0.16, 0.26, 0.11)),
-      this.edgeMaterial
-    );
-    threshold.position.set((doorLeft + doorRight) * 0.5, doorBottom + 0.04, wallZ + 0.12);
-    this.root.add(threshold);
+  private createExitDoor(timber: THREE.Material, doorMin: number, doorMax: number): void {
+    const c = CABIN_LAYOUT;
+    const doorWidth = doorMax - doorMin;
+    const doorHeight = c.door.topZ - c.floorZ;
+    const doorwayX = c.halfWidth;
+    const jambWidth = 0.12;
 
-    const outsideFloor = new THREE.Mesh(
-      this.trackGeometry(new THREE.PlaneGeometry(openingWidth + 0.5, 2.2)),
-      this.floorMaterial
-    );
-    outsideFloor.position.set((doorLeft + doorRight) * 0.5, doorBottom - 0.32, wallZ - 0.62);
-    outsideFloor.rotation.x = -Math.PI / 2;
-    outsideFloor.rotation.z = Math.PI;
-    this.root.add(outsideFloor);
+    this.box(0.24, jambWidth, doorHeight + 0.13, timber)
+      .position.set(doorwayX, doorMin, c.floorZ + doorHeight / 2);
+    this.box(0.24, jambWidth, doorHeight + 0.13, timber)
+      .position.set(doorwayX, doorMax, c.floorZ + doorHeight / 2);
+    this.box(0.24, doorWidth + 0.2, 0.14, timber)
+      .position.set(doorwayX, c.door.y, c.door.topZ + 0.04);
+    this.box(0.36, doorWidth + 0.12, 0.07, timber)
+      .position.set(doorwayX - 0.02, c.door.y, c.floorZ + 0.035);
 
-    const frameThickness = 0.12;
-    const leftJamb = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(frameThickness, openingHeight + 0.18, 0.18)),
-      trimMaterial
-    );
-    leftJamb.position.set(doorLeft - frameThickness * 0.25, (doorBottom + doorTop) * 0.5, wallZ + 0.03);
-    this.root.add(leftJamb);
-
-    const rightJamb = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(frameThickness, openingHeight + 0.18, 0.18)),
-      trimMaterial
-    );
-    rightJamb.position.set(doorRight + frameThickness * 0.25, (doorBottom + doorTop) * 0.5, wallZ + 0.03);
-    this.root.add(rightJamb);
-
-    const lintel = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(openingWidth + 0.22, 0.13, 0.18)),
-      trimMaterial
-    );
-    lintel.position.set((doorLeft + doorRight) * 0.5, doorTop + 0.05, wallZ + 0.03);
-    this.root.add(lintel);
-
-    const doorMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x6a432c,
-      map: woodTexture,
-      roughness: 0.82,
-      metalness: 0,
-      emissive: 0x27160f,
-      emissiveIntensity: 0.025
-    }));
-
+    // A thin door slab hinged around the vertical Z axis. The leaf is open
+    // INTO the cabin instead of appearing as a flat rectangle on a wall.
     const hinge = new THREE.Group();
-    hinge.position.set(doorRight - 0.035, (doorBottom + doorTop) * 0.5, wallZ + 0.07);
-    hinge.rotation.y = 0.72;
+    hinge.position.set(doorwayX - 0.02, doorMax - 0.08, c.floorZ + 0.09);
+    hinge.rotation.z = -0.66;
     this.root.add(hinge);
+    const slabHeight = doorHeight - 0.16;
+    const slabWidth = doorWidth - 0.16;
+    const slab = this.box(0.10, slabWidth, slabHeight, this.edgeMaterial, hinge);
+    slab.position.set(0, -slabWidth / 2, slabHeight / 2);
+    const panel = this.box(0.022, slabWidth * 0.68, slabHeight * 0.33, timber, hinge);
+    panel.position.set(-0.061, -slabWidth * 0.50, slabHeight * 0.62);
 
-    const slabWidth = openingWidth - 0.13;
-    const slabHeight = openingHeight - 0.16;
-    const slab = new THREE.Mesh(
-      this.trackGeometry(new THREE.BoxGeometry(slabWidth, slabHeight, 0.09)),
-      doorMaterial
+    const handle = new THREE.Mesh(
+      this.trackGeometry(new THREE.SphereGeometry(0.062, 8, 6)),
+      this.trackMaterial(new THREE.MeshStandardMaterial({ color: 0xbea477, metalness: 0.36, roughness: 0.48 }))
     );
-    slab.position.x = -slabWidth * 0.5;
-    hinge.add(slab);
+    handle.position.set(-0.09, -slabWidth * 0.84, slabHeight * 0.47);
+    hinge.add(handle);
 
-    const panelMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0x4e2f21,
-      roughness: 0.88,
-      metalness: 0,
-      emissive: 0x1c100b,
-      emissiveIntensity: 0.02
-    }));
-    for (const y of [-0.74, 0.56]) {
-      const inset = new THREE.Mesh(
-        this.trackGeometry(new THREE.BoxGeometry(slabWidth * 0.62, slabHeight * 0.28, 0.025)),
-        panelMaterial
-      );
-      inset.position.set(-slabWidth * 0.5, y, 0.055);
-      hinge.add(inset);
+    // Dark corridor is geometrically beyond the right-hand wall, and the
+    // threshold remains open (no opaque wall hidden behind the door).
+    this.box(0.12, doorWidth - 0.11, doorHeight, this.trackMaterial(
+      new THREE.MeshBasicMaterial({ color: 0x211f20, side: THREE.DoubleSide })
+    )).position.set(c.halfWidth + 0.48, c.door.y, c.floorZ + doorHeight / 2);
+  }
+
+  private createTable(timber: THREE.Material): void {
+    const c = CABIN_LAYOUT;
+    const tabletop = this.box(9.25, 5.5, 0.25, this.deskMaterial);
+    tabletop.position.set(0, -0.13, c.tableTopZ - 0.125);
+
+    // Four legs are genuinely vertical (Z); old legs were little blocks
+    // arranged in the image plane and never reached the floor.
+    const legHeight = c.tableTopZ - 0.25 - c.floorZ;
+    const legGeometry = this.trackGeometry(new THREE.BoxGeometry(0.36, 0.36, legHeight));
+    for (const x of [-4.18, 4.18]) {
+      for (const y of [-2.32, 2.05]) {
+        const leg = new THREE.Mesh(legGeometry, timber);
+        leg.position.set(x, y, c.floorZ + legHeight / 2);
+        this.root.add(leg);
+      }
     }
 
-    const knobMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
-      color: 0xc1a16b,
-      roughness: 0.38,
-      metalness: 0.62
+    this.box(8.7, 0.18, 0.40, this.edgeMaterial)
+      .position.set(0, -2.78, c.tableTopZ - 0.47);
+    this.box(8.7, 0.18, 0.40, this.edgeMaterial)
+      .position.set(0, 2.52, c.tableTopZ - 0.47);
+    for (const x of [-4.39, 4.39]) {
+      this.box(0.16, 5.10, 0.40, this.edgeMaterial)
+        .position.set(x, -0.13, c.tableTopZ - 0.47);
+    }
+
+    // Lightweight contact shade (only two triangles) rather than shadow maps.
+    const contactMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({
+      color: 0x26180d, transparent: true, opacity: 0.17, depthWrite: false,
+      side: THREE.DoubleSide
     }));
-    const knob = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.055, 14, 10)), knobMaterial);
-    knob.position.set(-slabWidth * 0.9, 0, 0.095);
-    hinge.add(knob);
+    const contact = new THREE.Mesh(this.trackGeometry(new THREE.PlaneGeometry(8.9, 5.35)), contactMaterial);
+    contact.position.set(0, -0.13, c.floorZ + 0.012);
+    this.root.add(contact);
+  }
+
+  private createSignature(): void {
+    const signatureTexture = this.trackTexture(createDeskSignatureTexture());
+    const signatureMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
+      map: signatureTexture, transparent: true, opacity: 0.76,
+      depthWrite: false, side: THREE.DoubleSide, roughness: 0.94
+    }));
+    const signature = new THREE.Mesh(
+      this.trackGeometry(new THREE.PlaneGeometry(0.8, 0.27)), signatureMaterial
+    );
+    signature.position.set(-2.92, 0.25, CABIN_LAYOUT.tableTopZ + 0.006);
+    signature.rotation.z = -0.025;
+    this.root.add(signature);
+  }
+
+  private box(width: number, depth: number, height: number, material: THREE.Material, parent = this.root): THREE.Mesh {
+    const mesh = new THREE.Mesh(
+      this.trackGeometry(new THREE.BoxGeometry(width, depth, height)), material
+    );
+    parent.add(mesh);
+    return mesh;
   }
 
   private trackGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
@@ -344,26 +283,17 @@ function createDeskSignatureTexture(): THREE.CanvasTexture {
   canvas.height = 160;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas 2D indisponível para assinatura da mesa.');
-
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.textBaseline = 'middle';
-
-  const copyrightX = 96;
-  const baselineY = 82;
-  const bkX = 170;
-
-  context.fillStyle = 'rgba(242, 199, 146, 0.22)';
-  context.font = '500 58px Georgia, serif';
-  context.fillText('©', copyrightX + 2, baselineY + 3);
-  context.font = '600 78px Georgia, serif';
-  context.fillText('Bk', bkX + 2, baselineY + 3);
-
-  context.fillStyle = 'rgba(44, 25, 15, 0.66)';
-  context.font = '500 58px Georgia, serif';
-  context.fillText('©', copyrightX, baselineY);
-  context.font = '600 78px Georgia, serif';
-  context.fillText('Bk', bkX, baselineY);
-
+  const draw = (color: string, dx: number, dy: number): void => {
+    context.fillStyle = color;
+    context.font = '500 58px Georgia, serif';
+    context.fillText('©', 98 + dx, 82 + dy);
+    context.font = '600 78px Georgia, serif';
+    context.fillText('Bk', 170 + dx, 82 + dy);
+  };
+  draw('rgba(242,199,146,0.24)', 2, 3);
+  draw('rgba(44,25,15,0.69)', 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
