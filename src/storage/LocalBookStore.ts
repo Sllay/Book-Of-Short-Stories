@@ -69,7 +69,10 @@ export class LocalBookStore {
 
     try {
       const writtenToOpfs = await this.writeSourceToOpfs(input.id, source);
-      if (writtenToOpfs) {
+      // OPFS may be offered but subsequently fail on some mobile WebKit builds.
+      // Verify readability and size before deleting the old IndexedDB fallback.
+      const readback = writtenToOpfs ? await this.readSourceFromOpfs(input.id) : null;
+      if (readback && readback.size === source.size) {
         sourceStorage = 'opfs';
         await this.deleteIndexedDbSource(input.id);
       } else {
