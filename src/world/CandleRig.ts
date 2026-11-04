@@ -1,8 +1,10 @@
+import { CABIN_LAYOUT } from './RoomScene';
 import * as THREE from 'three';
 import { createWaxTexture } from './WorldMaterialTextures';
 
 type CandlePhase = 'off' | 'lighting' | 'on' | 'extinguishing';
 
+const CABIN_CANDLE_BASE_Z = CABIN_LAYOUT.tableTopZ + 0.006;
 const LIGHT_ON_HOUR = 18.25;
 const LIGHT_OFF_HOUR = 5.5;
 const LIGHTING_DURATION = 2.6;
@@ -29,7 +31,7 @@ export class CandleRig {
   private focusMode = false;
 
   public constructor() {
-    this.root.position.set(-3.08, 0.92, -0.31);
+    this.root.position.set(-3.08, 0.92, CABIN_CANDLE_BASE_Z);
 
     const waxTexture = this.trackTexture(createWaxTexture());
     const waxMaterial = this.trackMaterial(new THREE.MeshStandardMaterial({
@@ -39,17 +41,17 @@ export class CandleRig {
       metalness: 0
     }));
 
-    const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.18, 0.22, 0.46, 24)), waxMaterial);
+    const wax = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.18, 0.22, 0.46, 12)), waxMaterial);
     wax.rotation.x = Math.PI / 2;
     wax.position.z = 0.27;
     this.root.add(wax);
 
-    const meltedTop = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.17, 18, 10)), waxMaterial);
+    const meltedTop = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.17, 10, 6)), waxMaterial);
     meltedTop.scale.set(1, 0.94, 0.17);
     meltedTop.position.set(-0.01, 0.015, 0.5);
     this.root.add(meltedTop);
 
-    const puddle = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.27, 0.3, 0.026, 26)), waxMaterial);
+    const puddle = new THREE.Mesh(this.trackGeometry(new THREE.CylinderGeometry(0.27, 0.3, 0.026, 12)), waxMaterial);
     puddle.rotation.x = Math.PI / 2;
     puddle.position.set(0.015, -0.01, 0.025);
     this.root.add(puddle);
@@ -59,7 +61,7 @@ export class CandleRig {
       [-0.135, 0.075, 0.33, 0.68, 0.48, 1.35],
       [0.035, 0.17, 0.405, 0.66, 0.5, 1.1]
     ] as const) {
-      const drip = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.046, 10, 8)), waxMaterial);
+      const drip = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.046, 8, 6)), waxMaterial);
       drip.scale.set(sx, sy, sz);
       drip.position.set(x, y, z);
       this.root.add(drip);
@@ -72,7 +74,7 @@ export class CandleRig {
     this.root.add(wick);
 
     const flameMaterial = this.trackMaterial(new THREE.MeshBasicMaterial({ color: 0xffb24f, toneMapped: false }));
-    this.flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.072, 14, 12)), flameMaterial);
+    this.flame = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.072, 9, 7)), flameMaterial);
     this.flame.position.z = 0.67;
     this.root.add(this.flame);
 
@@ -83,7 +85,7 @@ export class CandleRig {
       depthWrite: false,
       toneMapped: false
     }));
-    this.flameCore = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.04, 12, 10)), coreMaterial);
+    this.flameCore = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.04, 8, 6)), coreMaterial);
     this.flameCore.position.z = 0.665;
     this.root.add(this.flameCore);
 
@@ -94,7 +96,7 @@ export class CandleRig {
       depthWrite: false,
       toneMapped: false
     }));
-    this.flameGlow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.2, 12, 10)), glowMaterial);
+    this.flameGlow = new THREE.Mesh(this.trackGeometry(new THREE.SphereGeometry(0.2, 9, 6)), glowMaterial);
     this.flameGlow.position.z = 0.665;
     this.root.add(this.flameGlow);
 
